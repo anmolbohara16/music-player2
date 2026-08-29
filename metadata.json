@@ -1,0 +1,6 @@
+{
+  "name": "Music Player",
+  "description": "A modern offline music player with audio controls, playlists, favorites, queue, and background playback.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
