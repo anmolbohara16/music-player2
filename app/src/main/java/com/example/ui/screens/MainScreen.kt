@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import com.example.ui.components.*
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -103,8 +104,10 @@ fun MainScreen(
     val selectedAlbum by viewModel.selectedAlbum.collectAsStateWithLifecycle()
     val selectedArtist by viewModel.selectedArtist.collectAsStateWithLifecycle()
     val selectedPlaylist by viewModel.selectedPlaylist.collectAsStateWithLifecycle()
+    val isSettingsOpen by viewModel.isSettingsOpen.collectAsStateWithLifecycle()
     val isNowPlayingExpanded by viewModel.isNowPlayingExpanded.collectAsStateWithLifecycle()
     val isPlayerOptionsOpen by viewModel.isPlayerOptionsOpen.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val isScanning by viewModel.isScanning.collectAsStateWithLifecycle()
     val isQueueSheetOpen by viewModel.isQueueSheetOpen.collectAsStateWithLifecycle()
     val isAddToPlaylistDialogOpen by viewModel.isAddToPlaylistDialogOpen.collectAsStateWithLifecycle()
@@ -121,13 +124,31 @@ fun MainScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResultsSongs.collectAsStateWithLifecycle()
 
+    val isMetadataSearchOpen by viewModel.isMetadataSearchOpen.collectAsStateWithLifecycle()
+    val isSearchingMetadata by viewModel.isSearchingMetadata.collectAsStateWithLifecycle()
+    val metadataSearchResult by viewModel.metadataSearchResult.collectAsStateWithLifecycle()
+    val metadataSearchError by viewModel.metadataSearchError.collectAsStateWithLifecycle()
+    val songForMetadata by viewModel.songForMetadata.collectAsStateWithLifecycle()
+    val isIdentifyByLinkOpen by viewModel.isIdentifyByLinkOpen.collectAsStateWithLifecycle()
+    val isResolvingLink by viewModel.isResolvingLink.collectAsStateWithLifecycle()
+    val isEditMetadataOpen by viewModel.isEditMetadataOpen.collectAsStateWithLifecycle()
+    val songForEditMetadata by viewModel.songForEditMetadata.collectAsStateWithLifecycle()
+    val isLyricsViewerOpen by viewModel.isLyricsViewerOpen.collectAsStateWithLifecycle()
+    val songForLyrics by viewModel.songForLyrics.collectAsStateWithLifecycle()
+    val metadataCandidates by viewModel.metadataCandidates.collectAsStateWithLifecycle()
+    val isSavingMetadata by viewModel.isSavingMetadata.collectAsStateWithLifecycle()
+    val librarySearch by viewModel.librarySearch.collectAsStateWithLifecycle()
+    val isLibrarySearchOpen by viewModel.isLibrarySearchOpen.collectAsStateWithLifecycle()
+    val excludedSongs by viewModel.excludedSongs.collectAsStateWithLifecycle()
+
     // Handle System Back Button
     BackHandler(
-        enabled = isNowPlayingExpanded || isSearchActive || selectedAlbum != null || selectedArtist != null || selectedPlaylist != null || activeTab != MainTab.SONGS
+        enabled = isNowPlayingExpanded || isSearchActive || isSettingsOpen || selectedAlbum != null || selectedArtist != null || selectedPlaylist != null || activeTab != MainTab.SONGS
     ) {
         when {
             isNowPlayingExpanded -> viewModel.setNowPlayingExpanded(false)
             isSearchActive -> viewModel.setSearchActive(false)
+            isSettingsOpen -> viewModel.closeSettings()
             selectedAlbum != null -> viewModel.closeAlbum()
             selectedArtist != null -> viewModel.closeArtist()
             selectedPlaylist != null -> viewModel.closePlaylist()
@@ -140,10 +161,10 @@ fun MainScreen(
         NavItem(MainTab.SONGS, Icons.Rounded.MusicNote, "Songs"),
         NavItem(MainTab.ALBUMS, Icons.Rounded.Album, "Albums"),
         NavItem(MainTab.ARTISTS, Icons.Rounded.Person, "Artists"),
-        NavItem(MainTab.PLAYLISTS, Icons.AutoMirrored.Rounded.QueueMusic, "Playlists"),
-        NavItem(MainTab.FAVORITES, Icons.Rounded.Favorite, "Favorites")
+        NavItem(MainTab.PROFILE, Icons.AutoMirrored.Rounded.QueueMusic, "Library")
     )
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = DarkBackground,
@@ -190,7 +211,7 @@ fun MainScreen(
                             label = {
                                 Text(
                                     text = item.label,
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (selected) androidx.compose.ui.text.font.FontWeight.Medium else androidx.compose.ui.text.font.FontWeight.Normal),
                                     maxLines = 1
                                 )
                             },
@@ -215,6 +236,20 @@ fun MainScreen(
         ) {
             // Main content depending on active views
             when {
+                isSettingsOpen -> {
+                    SettingsScreen(
+                        equalizerPreset = equalizerPreset,
+                        sleepTimerSecondsLeft = sleepTimerSecondsLeft,
+                        isScanning = isScanning,
+                        isBatchSearching = librarySearch.running,
+                        songCount = allSongs.size,
+                        onBack = viewModel::closeSettings,
+                        onOpenEqualizer = viewModel::openEqualizerDialog,
+                        onOpenSleepTimer = viewModel::openSleepTimerDialog,
+                        onRescanLibrary = viewModel::refreshMusicLibrary,
+                        onOpenWebSearch = viewModel::openLibrarySearch
+                    )
+                }
                 isSearchActive -> {
                     SearchScreen(
                         query = searchQuery,
@@ -222,6 +257,8 @@ fun MainScreen(
                         currentSong = currentSong,
                         isPlaying = isPlaying,
                         onQueryChange = { viewModel.setSearchQuery(it) },
+                        onOpenAlbum = { viewModel.setSearchActive(false); viewModel.openAlbum(it) },
+                        onOpenArtist = { viewModel.setSearchActive(false); viewModel.openArtist(it) },
                         onBack = { viewModel.setSearchActive(false) },
                         onPlaySong = { song, list -> viewModel.playSong(song, list) },
                         onToggleFavorite = { viewModel.toggleFavorite(it) },
@@ -241,7 +278,7 @@ fun MainScreen(
                         onBack = { viewModel.closeAlbum() },
                         onPlaySong = { song, list -> viewModel.playSong(song, list, userInitiated = true) },
                         onShuffleAll = {
-                            val albumSongs = allSongs.filter { it.album == selectedAlbum!!.name }.shuffled()
+                            val albumSongs = allSongs.filter { it.album == selectedAlbum!!.name && it.artist == selectedAlbum!!.artist }.shuffled()
                             albumSongs.firstOrNull()?.let { viewModel.playSong(it, albumSongs, userInitiated = false) }
                         },
                         onToggleFavorite = { viewModel.toggleFavorite(it) },
@@ -291,6 +328,26 @@ fun MainScreen(
                 }
                 else -> {
                     when (activeTab) {
+                        MainTab.PROFILE -> {
+                            ProfileScreen(allSongs, albums, artists, playlists, favoriteSongs, recentlyPlayed,
+                                excludedSongs, currentSong, isPlaying, librarySearch.running, isScanning,
+                                onPlaySong = { song, list -> viewModel.playSong(song, list) },
+                                onNavigateToSongs = { viewModel.setActiveTab(MainTab.SONGS) },
+                                onNavigateToFavorites = { viewModel.setActiveTab(MainTab.FAVORITES) },
+                                onNavigateToPlaylists = { viewModel.setActiveTab(MainTab.PLAYLISTS) },
+                                onOpenSettings = viewModel::openSettings,
+                                onNavigateToMostPlayed = { viewModel.setSortOption(com.example.model.SortOption.MOST_PLAYED); viewModel.setActiveTab(MainTab.SONGS) },
+                                onLibraryWebSearch = viewModel::openLibrarySearch,
+                                onRescanLibrary = viewModel::refreshMusicLibrary,
+                                onRestoreExcludedSong = viewModel::restoreExcludedSong,
+                                onOpenEqualizer = viewModel::openEqualizerDialog,
+                                onOpenSleepTimer = viewModel::openSleepTimerDialog,
+                                onToggleFavorite = viewModel::toggleFavorite,
+                                onAddToQueue = viewModel::addToQueue,
+                                onPlayNext = viewModel::playNextInQueue,
+                                onAddToPlaylist = viewModel::openAddToPlaylist,
+                                onShowSongInfo = viewModel::openSongInfo)
+                        }
                         MainTab.HOME -> {
                             HomeScreen(
                                 allSongs = allSongs,
@@ -305,6 +362,7 @@ fun MainScreen(
                                     val shuffled = allSongs.shuffled()
                                     shuffled.firstOrNull()?.let { viewModel.playSong(it, shuffled, userInitiated = false) }
                                 },
+                                onOpenProfile = { viewModel.setActiveTab(MainTab.PROFILE) },
                                 onOpenSearch = { viewModel.setSearchActive(true) },
                                 onOpenPlaylist = { viewModel.openPlaylist(it) },
                                 onCreatePlaylist = { viewModel.openCreatePlaylistDialog() },
@@ -322,7 +380,7 @@ fun MainScreen(
                                 currentSong = currentSong,
                                 isPlaying = isPlaying,
                                 currentSortOption = sortOption,
-                                isScanning = isScanning,
+                                isScanning = isScanning || isLoading,
                                 onPlaySong = { song, list -> viewModel.playSong(song, list, userInitiated = true) },
                                 onPlayAll = {
                                     sortedSongs.firstOrNull()?.let { viewModel.playSong(it, sortedSongs, userInitiated = false) }
@@ -338,7 +396,12 @@ fun MainScreen(
                                 onAddToPlaylist = { viewModel.openAddToPlaylist(it) },
                                 onShowSongInfo = { viewModel.openSongInfo(it) },
                                 onDeleteSong = { viewModel.openDeleteSongDialog(it) },
-                                onRescanLibrary = { viewModel.refreshMusicLibrary() }
+                                onRescanLibrary = { viewModel.refreshMusicLibrary() },
+                                onLibraryWebSearch = { viewModel.openLibrarySearch() },
+                                onSearchWeb = viewModel::searchSongOnWeb,
+                                onIdentifyUsingLink = viewModel::openIdentifyByLink,
+                                onEditMetadata = viewModel::openEditMetadata,
+                                onOpenLyrics = viewModel::openLyricsViewer
                             )
                         }
                         MainTab.ALBUMS -> {
@@ -382,6 +445,10 @@ fun MainScreen(
                 }
             }
 
+
+        }
+    }
+
             // Fullscreen Now Playing Overlay
             AnimatedVisibility(
                 visible = isNowPlayingExpanded && currentSong != null,
@@ -404,10 +471,11 @@ fun MainScreen(
                     onToggleShuffle = { viewModel.toggleShuffle() },
                     onToggleRepeat = { viewModel.toggleRepeat() },
                     onToggleFavorite = { viewModel.toggleFavorite(it) },
-                    onOpenOptions = { viewModel.openPlayerOptions() }
+                    onOpenOptions = { viewModel.openPlayerOptions() },
+                    onOpenQueue = viewModel::openQueueSheet,
+                    onOpenLyrics = { currentSong?.let(viewModel::openLyricsViewer) }
                 )
             }
-        }
     }
 
     // Modal bottom sheets & Dialogs
@@ -420,6 +488,10 @@ fun MainScreen(
             queueCount = queue.size,
             onDismiss = { viewModel.closePlayerOptions() },
             onOpenSongInfo = { viewModel.openSongInfo(currentSong!!) },
+            onSearchWeb = { viewModel.searchSongOnWeb(currentSong!!) },
+            onIdentifyUsingLink = { viewModel.openIdentifyByLink(currentSong!!) },
+            onEditMetadata = { viewModel.openEditMetadata(currentSong!!) },
+            onOpenLyrics = { viewModel.openLyricsViewer(currentSong!!) },
             onOpenQueue = { viewModel.openQueueSheet() },
             onOpenAddToPlaylist = { viewModel.openAddToPlaylist(currentSong!!) },
             onToggleFavorite = { viewModel.toggleFavorite(currentSong!!) },
@@ -436,6 +508,7 @@ fun MainScreen(
             onDismiss = { viewModel.closeQueueSheet() },
             onSelectIndex = { viewModel.playQueueIndex(it) },
             onRemoveFromQueue = { viewModel.removeFromQueue(it) },
+            onClearQueue = viewModel::clearQueue,
             onShuffleQueue = { viewModel.toggleShuffle() }
         )
     }
@@ -492,6 +565,8 @@ fun MainScreen(
     if (isSongInfoDialogOpen && songForInfo != null) {
         SongInfoDialog(
             song = songForInfo,
+            onEdit = { val song = songForInfo!!; viewModel.closeSongInfo(); viewModel.openEditMetadata(song) },
+            onIdentify = { val song = songForInfo!!; viewModel.closeSongInfo(); viewModel.openIdentifyByLink(song) },
             onDismiss = { viewModel.closeSongInfo() }
         )
     }
@@ -504,4 +579,32 @@ fun MainScreen(
             onPermanentlyDelete = { viewModel.permanentlyDeleteSong(songForDelete!!) }
         )
     }
+    if (isLibrarySearchOpen && !isMetadataSearchOpen) {
+        LibrarySearchDialog(librarySearch, viewModel::cancelLibrarySearch, viewModel::dismissLibrarySearch, viewModel::reviewBatchEntry,
+            onRestart = viewModel::newLibrarySearch)
+    }
+    if (isMetadataSearchOpen && songForMetadata != null) {
+        MetadataSearchResultDialog(songForMetadata!!, isSearchingMetadata, metadataSearchResult, metadataSearchError,
+            onApplyMetadata = { result, fields -> viewModel.applyOnlineMetadata(songForMetadata!!, result, fields) },
+            onRetrySearch = viewModel::retryMetadataSearch,
+            onOpenIdentifyByLink = { val song = songForMetadata!!; viewModel.closeMetadataSearch(); viewModel.openIdentifyByLink(song) },
+            onDismiss = viewModel::closeMetadataSearch, candidates = metadataCandidates,
+            onSelectCandidate = viewModel::selectMetadataCandidate, isSaving = isSavingMetadata)
+    }
+    if (isIdentifyByLinkOpen && songForMetadata != null) {
+        IdentifyByLinkDialog(songForMetadata!!, isResolvingLink, viewModel::resolveLinkForSong, viewModel::closeIdentifyByLink)
+    }
+    if (isEditMetadataOpen && songForEditMetadata != null) {
+        EditMetadataDialog(songForEditMetadata!!, viewModel::saveManualMetadata,
+            { viewModel.resetMetadata(songForEditMetadata!!) }, viewModel::closeEditMetadata)
+    }
+    if (isLyricsViewerOpen && songForLyrics != null) {
+        LyricsViewerDialog(songForLyrics!!,
+            { val song = songForLyrics!!; viewModel.closeLyricsViewer(); viewModel.searchSongOnWeb(song) },
+            { val song = songForLyrics!!; viewModel.closeLyricsViewer(); viewModel.openEditMetadata(song) },
+            viewModel::closeLyricsViewer,
+            currentPositionMs = if (currentSong?.id == songForLyrics!!.id) currentPositionMs else 0L,
+            isPlaying = currentSong?.id == songForLyrics!!.id && isPlaying)
+    }
+
 }

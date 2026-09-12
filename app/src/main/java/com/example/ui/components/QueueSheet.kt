@@ -27,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -56,6 +57,7 @@ fun QueueSheet(
     onDismiss: () -> Unit,
     onSelectIndex: (Int) -> Unit,
     onRemoveFromQueue: (Int) -> Unit,
+    onClearQueue: () -> Unit = {},
     onShuffleQueue: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -104,6 +106,7 @@ fun QueueSheet(
                 }
 
                 Row {
+                    TextButton(onClick = onClearQueue, enabled = queue.isNotEmpty()) { Text("Clear") }
                     IconButton(
                         onClick = onShuffleQueue,
                         modifier = Modifier.testTag("queue_shuffle_button")
@@ -154,7 +157,11 @@ fun QueueSheet(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    itemsIndexed(queue) { index, song ->
+                    itemsIndexed(queue, key = { _, song -> song.id }) { index, song ->
+                        if (index == currentIndex || index == currentIndex + 1 || index == 0 && currentIndex > 0) {
+                            Text(if (index == currentIndex) "Playing now" else if (index > currentIndex) "Up next" else "Earlier",
+                                Modifier.padding(12.dp), style = MaterialTheme.typography.labelLarge, color = TextSecondary)
+                        }
                         val isPlayingItem = index == currentIndex
                         SongListItem(
                             song = song,

@@ -105,13 +105,13 @@ fun AlbumsScreen(
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 100.dp),
+                columns = GridCells.Adaptive(156.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(albums) { album ->
+                items(albums, key = { it.name + "|" + it.artist }) { album ->
                     AlbumGridItem(
                         album = album,
                         onClick = { onOpenAlbum(album) }
@@ -139,13 +139,13 @@ fun AlbumDetailScreen(
     onDeleteSong: (Song) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val albumSongs = songs.filter { it.album == album.name }
+    val albumSongs = songs.filter { it.album == album.name && it.artist == album.artist }
 
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
             .testTag("album_detail_screen"),
-        contentPadding = PaddingValues(bottom = 100.dp)
+        contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         // Top Bar with Back button
         item {

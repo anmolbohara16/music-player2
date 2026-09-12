@@ -40,6 +40,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -65,10 +67,10 @@ fun IdentifyByLinkDialog(
     var urlText by remember { mutableStateOf("") }
     val clipboardManager = LocalClipboardManager.current
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth()
+                .width((LocalConfiguration.current.screenWidthDp.dp - 40.dp).coerceAtMost(560.dp))
                 .clip(RoundedCornerShape(24.dp))
                 .border(1.dp, GlassCardBorderSubtle, RoundedCornerShape(24.dp))
                 .testTag("identify_by_link_dialog"),
@@ -234,16 +236,16 @@ fun IdentifyByLinkDialog(
                     ) {
                         if (isResolving) {
                             CircularProgressIndicator(
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onPrimary,
                                 strokeWidth = 2.dp,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Identifying...", color = Color.White)
+                            Text("Identifying...", color = MaterialTheme.colorScheme.onPrimary)
                         } else {
                             Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Identify Song", color = Color.White)
+                            Text("Identify Song", color = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
                 }

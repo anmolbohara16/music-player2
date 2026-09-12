@@ -25,6 +25,7 @@ class ItunesMetadataProvider(
         album: String,
         durationMs: Long
     ): List<OnlineSongMetadata> = withContext(Dispatchers.IO) {
+        ItunesRateLimit.awaitTurn()
         val query = SongQueryCleaner.buildSearchQuery(title, artist, album)
         if (query.isBlank()) return@withContext emptyList()
 
@@ -37,8 +38,8 @@ class ItunesMetadataProvider(
             .build()
 
         try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
+            client.awaitResponse(request).use { response ->
+                if (!response.isSuccessful) throw MetadataHttpException(response.code, response.header("Retry-After")?.toLongOrNull())
                 val body = response.body?.string() ?: return@withContext emptyList()
                 val root = JSONObject(body)
                 val resultsArray = root.optJSONArray("results") ?: return@withContext emptyList()
@@ -52,7 +53,7 @@ class ItunesMetadataProvider(
                     val primaryGenre = item.optString("primaryGenreName", "")
                     val releaseDate = item.optString("releaseDate", "")
                     val trackNumber = item.optInt("trackNumber", 0)
-                    val discNumber = item.optInt("discNumber", 1)
+                    val discNumber = item.optInt("discNumber", 0)
                     val trackTimeMillis = item.optLong("trackTimeMillis", 0L)
                     val rawArtwork = item.optString("artworkUrl100", "")
 
@@ -78,7 +79,7 @@ class ItunesMetadataProvider(
                             title = cleanTrackTitle,
                             artist = artistName,
                             album = collectionName,
-                            albumArtist = artistName,
+                            albumArtist = item.optString("collectionArtistName", ""),
                             genre = primaryGenre,
                             releaseYear = releaseYear,
                             trackNumber = trackNumber,
@@ -94,7 +95,7 @@ class ItunesMetadataProvider(
                 list
             }
         } catch (e: Exception) {
-            emptyList()
+            throw e
         }
     }
 }

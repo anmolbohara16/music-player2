@@ -160,11 +160,11 @@ fun PlaylistsScreen(
                 }
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 120.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(playlists) { playlist ->
+                    items(playlists, key = { it.id }) { playlist ->
                         PlaylistItemRow(
                             playlist = playlist,
                             onClick = { onOpenPlaylist(playlist) }
@@ -249,7 +249,7 @@ fun PlaylistDetailScreen(
         modifier = modifier
             .fillMaxSize()
             .testTag("playlist_detail_screen"),
-        contentPadding = PaddingValues(bottom = 100.dp)
+        contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         // Back Top Bar
         item {
@@ -389,7 +389,7 @@ fun PlaylistDetailScreen(
                 }
             }
         } else {
-            items(songs) { song ->
+            items(songs, key = { it.id }) { song ->
                 val isCurrent = currentSong?.id == song.id
                 val isThisPlaying = isPlaying && isCurrent
                 SongListItem(

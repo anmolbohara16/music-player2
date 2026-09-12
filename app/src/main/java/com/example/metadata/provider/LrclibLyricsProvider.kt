@@ -28,7 +28,7 @@ class LrclibLyricsProvider(
         val cleanTitle = SongQueryCleaner.cleanSongTitle(title)
         val cleanArtist = if (artist != "Unknown" && artist != "<unknown>") artist else ""
 
-        if (cleanTitle.isBlank()) return@withContext Pair(null, null)
+        if (cleanTitle.isBlank() || !SongQueryCleaner.useful(cleanArtist) || durationMs <= 0) return@withContext Pair(null, null)
 
         // Try direct exact get first
         try {
@@ -50,19 +50,21 @@ class LrclibLyricsProvider(
                 .header("User-Agent", "MusicPlayerAndroid/1.0 (https://github.com/aistudio/musicplayer)")
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            client.awaitResponse(request).use { response ->
                 if (response.isSuccessful) {
                     val body = response.body?.string()
                     if (!body.isNullOrBlank()) {
                         val json = JSONObject(body)
-                        val plain = json.optString("plainLyrics", "").takeIf { it.isNotBlank() }
-                        val synced = json.optString("syncedLyrics", "").takeIf { it.isNotBlank() }
-                        if (plain != null || synced != null) {
+                        val plain = json.optString("plainLyrics", "").takeIf { SongQueryCleaner.useful(it) }
+                        val synced = json.optString("syncedLyrics", "").takeIf { SongQueryCleaner.useful(it) }
+                        if (matches(json, title, artist, durationMs) && (plain != null || synced != null)) {
                             return@withContext Pair(plain, synced)
                         }
                     }
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             // Ignore and fallback to search
         }
@@ -76,24 +78,30 @@ class LrclibLyricsProvider(
                 .header("User-Agent", "MusicPlayerAndroid/1.0 (https://github.com/aistudio/musicplayer)")
                 .build()
 
-            client.newCall(request).execute().use { response ->
+            client.awaitResponse(request).use { response ->
                 if (response.isSuccessful) {
                     val body = response.body?.string()
                     if (!body.isNullOrBlank()) {
                         val jsonArray = JSONArray(body)
                         if (jsonArray.length() > 0) {
-                            val first = jsonArray.getJSONObject(0)
-                            val plain = first.optString("plainLyrics", "").takeIf { it.isNotBlank() }
-                            val synced = first.optString("syncedLyrics", "").takeIf { it.isNotBlank() }
+                            val first = (0 until jsonArray.length()).map { jsonArray.getJSONObject(it) }
+                                .firstOrNull { matches(it, title, artist, durationMs) } ?: return@withContext Pair(null, null)
+                            val plain = first.optString("plainLyrics", "").takeIf { SongQueryCleaner.useful(it) }
+                            val synced = first.optString("syncedLyrics", "").takeIf { SongQueryCleaner.useful(it) }
                             return@withContext Pair(plain, synced)
                         }
                     }
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             // Ignore
         }
 
         Pair(null, null)
     }
+    private fun matches(json: JSONObject, title: String, artist: String, durationMs: Long): Boolean =
+        SongQueryCleaner.evaluateMatch(title, artist, durationMs, json.optString("trackName"),
+            json.optString("artistName"), (json.optDouble("duration", 0.0) * 1000).toLong()).first == com.example.metadata.model.MatchConfidence.HIGH
 }

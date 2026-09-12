@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -52,6 +53,7 @@ import com.example.model.Playlist
 import com.example.model.Song
 import com.example.ui.components.AlbumArtImage
 import com.example.ui.components.SongListItem
+import com.example.ui.components.AppSectionHeader
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.AccentEmerald
 import com.example.ui.theme.AccentPink
@@ -82,6 +84,7 @@ fun HomeScreen(
     onPlaySong: (Song, List<Song>) -> Unit,
     onShuffleAll: () -> Unit,
     onOpenSearch: () -> Unit,
+    onOpenProfile: () -> Unit = {},
     onOpenPlaylist: (Playlist) -> Unit,
     onCreatePlaylist: () -> Unit,
     onToggleFavorite: (Song) -> Unit,
@@ -109,7 +112,7 @@ fun HomeScreen(
             ) {
                 Column {
                     Text(
-                        text = "Music",
+                        text = "Good music.\nYour space.",
                         style = MaterialTheme.typography.headlineMedium.copy(
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = (-0.5).sp
@@ -145,7 +148,8 @@ fun HomeScreen(
                         modifier = Modifier
                             .size(44.dp)
                             .clip(CircleShape)
-                            .background(AccentPurple),
+                            .background(AccentPurple)
+                            .clickable(onClick = onOpenProfile),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -167,117 +171,22 @@ fun HomeScreen(
                     .padding(horizontal = 20.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Large Bento Hero Card (Recently Played or Library highlight)
-                val heroSong = recentlyPlayed.firstOrNull() ?: allSongs.firstOrNull()
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(GlassCardBackground)
-                        .border(1.dp, GlassCardBorder, RoundedCornerShape(24.dp))
-                        .clickable {
-                            if (heroSong != null) {
-                                onPlaySong(heroSong, if (recentlyPlayed.isNotEmpty()) recentlyPlayed else allSongs)
-                            } else {
-                                onShuffleAll()
-                            }
+                val heroSong = recentlyPlayed.firstOrNull() ?: recentlyAdded.firstOrNull()
+                androidx.compose.material3.Surface(shape = MaterialTheme.shapes.medium, color = GlassCardBackground,
+                    modifier = Modifier.fillMaxWidth().testTag("hero_quick_play_card")) {
+                    Row(Modifier.fillMaxWidth().clickable(enabled = heroSong != null) {
+                        heroSong?.let { onPlaySong(it, if (recentlyPlayed.isNotEmpty()) recentlyPlayed else allSongs) }
+                    }.padding(20.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(if (recentlyPlayed.isNotEmpty()) "PICK UP THE MOOD" else "MADE FOR YOUR MUSIC",
+                                style = MaterialTheme.typography.labelSmall, color = AccentPurple)
+                            Text(heroSong?.title ?: "Your next favorite is already yours.", style = MaterialTheme.typography.headlineSmall,
+                                color = TextPrimary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                            Text(heroSong?.artist ?: "Add audio to your device, then rescan your library.", color = TextSecondary)
+                            if (heroSong != null) Text("Listen again  →", color = AccentPurple, style = MaterialTheme.typography.labelLarge)
                         }
-                        .testTag("hero_quick_play_card")
-                ) {
-                    // Background art / gradient
-                    if (heroSong != null) {
-                        AlbumArtImage(
-                            song = heroSong,
-                            modifier = Modifier.fillMaxSize(),
-                            cornerRadius = 0.dp,
-                            fallbackIconSize = 80.dp
-                        )
-                    }
-
-                    // Dark Glass Overlay gradient
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.Black.copy(alpha = 0.25f),
-                                        Color.Black.copy(alpha = 0.65f),
-                                        Color.Black.copy(alpha = 0.90f)
-                                    )
-                                )
-                            )
-                    )
-
-                    // Top Right Frosted Badge
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(14.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(GlassBadgeBg)
-                            .border(1.dp, GlassCardBorderSubtle, RoundedCornerShape(20.dp))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = if (recentlyPlayed.isNotEmpty()) "RECENTLY PLAYED" else "OFFLINE LIBRARY",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
-                            ),
-                            color = TextPrimary
-                        )
-                    }
-
-                    // Bottom info and quick play
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .fillMaxWidth()
-                            .padding(18.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = if (heroSong != null) "Featured Track" else "Offline Music",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = TextSecondary
-                            )
-                            Text(
-                                text = heroSong?.title ?: "Midnight Melodies",
-                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                color = TextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (heroSong != null) {
-                                Text(
-                                    text = heroSong.artist,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = AccentPurple,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
-                        // Play/Shuffle icon circle
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(AccentPurple),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (isPlaying && currentSong?.id == heroSong?.id) Icons.Rounded.Shuffle else Icons.Rounded.PlayArrow,
-                                contentDescription = "Play",
-                                tint = AccentPurpleDarkText,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
+                        if (heroSong != null) AlbumArtImage(heroSong, Modifier.size(108.dp), cornerRadius = 18.dp)
                     }
                 }
 
@@ -290,17 +199,10 @@ fun HomeScreen(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(115.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(
-                                        AccentPurpleDeep.copy(alpha = 0.25f),
-                                        GlassCardBackground
-                                    )
-                                )
-                            )
-                            .border(1.dp, GlassCardBorder, RoundedCornerShape(24.dp))
+                            .heightIn(min = 128.dp)
+                            .clip(MaterialTheme.shapes.medium)
+                            .background(AccentPurpleDeep.copy(alpha = 0.35f))
+                            .border(1.dp, GlassCardBorder, MaterialTheme.shapes.medium)
                             .clickable {
                                 val favs = favoriteSongs
                                 if (favs.isNotEmpty()) {
@@ -338,8 +240,8 @@ fun HomeScreen(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(115.dp)
-                            .clip(RoundedCornerShape(24.dp))
+                            .heightIn(min = 128.dp)
+                            .clip(MaterialTheme.shapes.medium)
                             .background(GlassCardBackground)
                             .border(1.dp, GlassCardBorder, RoundedCornerShape(24.dp))
                             .clickable { onCreatePlaylist() }
@@ -376,7 +278,7 @@ fun HomeScreen(
         // Section: Recently Played Carousel
         if (recentlyPlayed.isNotEmpty()) {
             item {
-                SectionHeader(title = "Recently Played", count = recentlyPlayed.size)
+                AppSectionHeader(title = "Recently played", count = recentlyPlayed.size)
             }
             item {
                 LazyRow(
@@ -398,10 +300,10 @@ fun HomeScreen(
 
         // Section: Playlists Carousel
         item {
-            SectionHeader(
+            AppSectionHeader(
                 title = "Playlists",
                 count = playlists.size,
-                actionText = "+ New",
+                actionLabel = "+ New",
                 onAction = onCreatePlaylist
             )
         }
@@ -452,7 +354,7 @@ fun HomeScreen(
                     }
                 }
 
-                items(playlists) { playlist ->
+                items(playlists, key = { it.id }) { playlist ->
                     Box(
                         modifier = Modifier
                             .width(135.dp)
@@ -505,9 +407,9 @@ fun HomeScreen(
         // Section: Recently Added Music List
         if (recentlyAdded.isNotEmpty()) {
             item {
-                SectionHeader(title = "Recently Added", count = recentlyAdded.size)
+                AppSectionHeader(title = "Recently added", count = recentlyAdded.size)
             }
-            items(recentlyAdded.take(10)) { song ->
+            items(recentlyAdded.take(10), key = { it.id }) { song ->
                 val isThisPlaying = isPlaying && currentSong?.id == song.id
                 val isCurrent = currentSong?.id == song.id
                 SongListItem(

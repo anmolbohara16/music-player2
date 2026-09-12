@@ -101,11 +101,11 @@ fun ArtistsScreen(
             }
         } else {
             LazyColumn(
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 100.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(artists) { artist ->
+                items(artists, key = { it.name }) { artist ->
                     ArtistItem(
                         artist = artist,
                         onClick = { onOpenArtist(artist) }
@@ -138,7 +138,7 @@ fun ArtistDetailScreen(
         modifier = modifier
             .fillMaxSize()
             .testTag("artist_detail_screen"),
-        contentPadding = PaddingValues(bottom = 100.dp)
+        contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         // Back Top Bar
         item {
@@ -189,7 +189,7 @@ fun ArtistDetailScreen(
                     Icon(
                         imageVector = Icons.Rounded.Person,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(64.dp)
                     )
                 }

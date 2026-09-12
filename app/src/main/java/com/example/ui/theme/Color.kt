@@ -1,42 +1,45 @@
 package com.example.ui.theme
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-// Frosted Glass Aesthetic Palette
-val DarkBackground = Color(0xFF0D0D12)
-val DarkSurface = Color(0xFF1C1B1F)
-val DarkSurfaceVariant = Color(0xFF25242C)
-val DarkCard = Color(0xFF18171F)
-val DarkElevated = Color(0xFF26242E)
-
-// Glass Surface Colors & Translucencies
-val GlassCardBackground = Color(0x0DFFFFFF) // rgba(255, 255, 255, 0.05)
-val GlassCardBackgroundHover = Color(0x14FFFFFF) // rgba(255, 255, 255, 0.08)
-val GlassCardBackgroundElevated = Color(0x1FFFFFFF) // rgba(255, 255, 255, 0.12)
-val GlassCardBorder = Color(0x1AFFFFFF) // rgba(255, 255, 255, 0.10)
-val GlassCardBorderSubtle = Color(0x0DFFFFFF) // rgba(255, 255, 255, 0.05)
-val GlassCardBorderActive = Color(0x40D0BCFF) // rgba(208, 188, 255, 0.25)
-val GlassBadgeBg = Color(0x33FFFFFF) // rgba(255, 255, 255, 0.20)
-val GlassActiveNav = Color(0x33D0BCFF) // rgba(208, 188, 255, 0.20)
-val GlassBottomNavBg = Color(0xCC13121A) // Translucent glass bottom bar background
-
-// Frosted Glass Accents & M3 Light Lavender Tones
-val AccentPurple = Color(0xFFD0BCFF) // Main Frosted Glass Lavender Accent
-val AccentPurpleDeep = Color(0xFF4F378B) // Deep Purple for Glass Gradients
-val AccentPurpleDarkText = Color(0xFF381E72) // Text on Lavender Pill
-val AccentCyan = Color(0xFF8CE8FF)
-val AccentPink = Color(0xFFFFB2B6)
-val AccentEmerald = Color(0xFF85F4AB)
-val AccentAmber = Color(0xFFFFD978)
-
-// Text & Slate Content Colors
-val TextPrimary = Color(0xFFFFFFFF)
-val TextSecondary = Color(0xFF94A3B8) // Slate 400
-val TextTertiary = Color(0xFF64748B) // Slate 500
-val DividerColor = Color(0x0DFFFFFF)
-
-// Gradients & Ambient Tones
-val GradientFrostedGlass = listOf(AccentPurpleDeep.copy(alpha = 0.35f), Color.Transparent)
-val GradientPurpleCyan = listOf(AccentPurple, AccentCyan)
-val GradientDarkCard = listOf(DarkSurface, DarkSurfaceVariant)
-
+// Compatibility tokens keep every existing screen on the same adaptive design system.
+val DarkBackground: Color @Composable get() = MaterialTheme.colorScheme.background
+val DarkSurface: Color @Composable get() = MaterialTheme.colorScheme.surface
+val DarkSurfaceVariant: Color @Composable get() = MaterialTheme.colorScheme.surfaceVariant
+val DarkCard: Color @Composable get() = MaterialTheme.colorScheme.surfaceContainer
+val DarkElevated: Color @Composable get() = MaterialTheme.colorScheme.surfaceContainerHigh
+val GlassCardBackground: Color @Composable get() = MaterialTheme.colorScheme.surfaceContainer
+val GlassCardBackgroundHover: Color @Composable get() = MaterialTheme.colorScheme.surfaceContainerHigh
+val GlassCardBackgroundElevated: Color @Composable get() = MaterialTheme.colorScheme.surfaceVariant
+val GlassCardBorder: Color @Composable get() = MaterialTheme.colorScheme.outlineVariant
+val GlassCardBorderSubtle: Color @Composable get() = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+val GlassCardBorderActive: Color @Composable get() = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+val GlassBadgeBg: Color @Composable get() = MaterialTheme.colorScheme.secondaryContainer
+val GlassActiveNav: Color @Composable get() = MaterialTheme.colorScheme.primaryContainer
+val GlassBottomNavBg: Color @Composable get() = MaterialTheme.colorScheme.surface
+val AccentPurple: Color @Composable get() = MaterialTheme.colorScheme.primary
+val AccentPurpleDeep: Color @Composable get() = MaterialTheme.colorScheme.primaryContainer
+val AccentPurpleDarkText: Color @Composable get() = MaterialTheme.colorScheme.onPrimary
+val AccentCyan: Color @Composable get() = MaterialTheme.colorScheme.secondary
+val AccentPink: Color @Composable get() = MaterialTheme.colorScheme.tertiary
+val AccentEmerald: Color @Composable get() = MaterialTheme.colorScheme.secondary
+val AccentAmber: Color @Composable get() = MaterialTheme.colorScheme.tertiary
+val AccentGold: Color @Composable get() = MaterialTheme.colorScheme.tertiary
+val TextPrimary: Color @Composable get() = MaterialTheme.colorScheme.onSurface
+val TextSecondary: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
+val TextTertiary: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
+val DividerColor: Color @Composable get() = MaterialTheme.colorScheme.outlineVariant
+val AppBackground: Color @Composable get() = MaterialTheme.colorScheme.background
+val AppSurface: Color @Composable get() = MaterialTheme.colorScheme.surface
+val SupportingSurface: Color @Composable get() = MaterialTheme.colorScheme.surfaceContainer
+val SupportingLavender: Color @Composable get() = MaterialTheme.colorScheme.primaryContainer
+val SupportingPink: Color @Composable get() = MaterialTheme.colorScheme.tertiaryContainer
+val SupportingMint: Color @Composable get() = MaterialTheme.colorScheme.secondaryContainer
+val PrimaryAction: Color @Composable get() = MaterialTheme.colorScheme.primary
+val OnPrimaryAction: Color @Composable get() = MaterialTheme.colorScheme.onPrimary
+val TextMuted: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
+val GradientFrostedGlass: List<Color> @Composable get() = listOf(AccentPurple.copy(alpha = 0.08f), Color.Transparent)
+val GradientPurpleCyan: List<Color> @Composable get() = listOf(AccentPurple, AccentCyan)
+val GradientDarkCard: List<Color> @Composable get() = listOf(DarkSurface, DarkSurfaceVariant)

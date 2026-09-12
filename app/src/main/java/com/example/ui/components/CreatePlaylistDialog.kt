@@ -22,6 +22,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +45,7 @@ fun CreatePlaylistDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
         title = {
             Text(
                 text = "New Playlist",
@@ -104,6 +108,6 @@ fun CreatePlaylistDialog(
         },
         containerColor = DarkCard,
         shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.testTag("create_playlist_dialog")
+        modifier = Modifier.width((LocalConfiguration.current.screenWidthDp.dp - 40.dp).coerceAtMost(560.dp)).testTag("create_playlist_dialog")
     )
 }

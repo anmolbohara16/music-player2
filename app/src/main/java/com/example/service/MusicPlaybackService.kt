@@ -17,7 +17,11 @@ import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
-import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.*
+import coil.imageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
+import android.graphics.drawable.BitmapDrawable
 import com.example.MainActivity
 import com.example.R
 import com.example.model.Song
@@ -26,6 +30,12 @@ class MusicPlaybackService : Service() {
 
     private var mediaSession: MediaSession? = null
     private var notificationManager: NotificationManager? = null
+    private val artworkScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var artworkJob: Job? = null
+    private var artworkKey: Any? = null
+    private var cachedArtwork: Bitmap? = null
+    private var latestInfo: Triple<String, String, String>? = null
+    private var latestPlaying = false
 
     companion object {
         const val CHANNEL_ID = "music_player_channel"
@@ -68,10 +78,7 @@ class MusicPlaybackService : Service() {
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, MusicPlaybackService::class.java).apply {
-                action = ACTION_STOP
-            }
-            context.startService(intent)
+            context.stopService(Intent(context, MusicPlaybackService::class.java))
         }
     }
 
@@ -101,11 +108,11 @@ class MusicPlaybackService : Service() {
         mediaSession = MediaSession(this, "MusicPlayerSession").apply {
             setCallback(object : MediaSession.Callback() {
                 override fun onPlay() {
-                    playerControllerInstance?.togglePlayPause()
+                    playerControllerInstance?.let { if (!it.isPlaying.value) it.togglePlayPause() }
                 }
 
                 override fun onPause() {
-                    playerControllerInstance?.togglePlayPause()
+                    playerControllerInstance?.let { if (it.isPlaying.value) it.togglePlayPause() }
                 }
 
                 override fun onSkipToNext() {
@@ -116,7 +123,10 @@ class MusicPlaybackService : Service() {
                     playerControllerInstance?.playPrevious()
                 }
 
+                override fun onSeekTo(pos: Long) { playerControllerInstance?.seekTo(pos) }
+
                 override fun onStop() {
+                    playerControllerInstance?.stop()
                     stopSelf()
                 }
             })
@@ -138,6 +148,7 @@ class MusicPlaybackService : Service() {
                 playerControllerInstance?.playPrevious()
             }
             ACTION_STOP -> {
+                playerControllerInstance?.stop()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                 } else {
@@ -155,9 +166,24 @@ class MusicPlaybackService : Service() {
                 val artRes = intent.getIntExtra(EXTRA_ART_RES, 0)
                 val artUri = intent.getStringExtra(EXTRA_ART_URI)
 
+                latestInfo = Triple(title, artist, album)
+                latestPlaying = isPlaying
+                val key = artUri?.takeIf { it.isNotBlank() } ?: artRes.takeIf { it != 0 }
+                if (key != artworkKey) { artworkJob?.cancel(); cachedArtwork = null; artworkKey = key }
                 updateMediaSessionMetadata(title, artist, album, isPlaying)
-                val notification = buildNotification(title, artist, album, isPlaying, artRes, artUri)
-                startForeground(NOTIFICATION_ID, notification)
+                startForeground(NOTIFICATION_ID, buildNotification(title, artist, album, isPlaying, artRes, artUri))
+                if (cachedArtwork == null && key != null && artworkJob?.isActive != true) {
+                    artworkJob = artworkScope.launch {
+                        val result = imageLoader.execute(ImageRequest.Builder(this@MusicPlaybackService).data(key).size(256).allowHardware(false).build())
+                        if (artworkKey == key && result is SuccessResult) {
+                            cachedArtwork = (result.drawable as? BitmapDrawable)?.bitmap
+                            latestInfo?.let { (t, a, al) ->
+                                updateMediaSessionMetadata(t, a, al, latestPlaying)
+                                notificationManager?.notify(NOTIFICATION_ID, buildNotification(t, a, al, latestPlaying, 0, null))
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -176,11 +202,11 @@ class MusicPlaybackService : Service() {
                 PlaybackState.ACTION_PLAY_PAUSE or
                 PlaybackState.ACTION_SKIP_TO_NEXT or
                 PlaybackState.ACTION_SKIP_TO_PREVIOUS or
-                PlaybackState.ACTION_STOP
+                PlaybackState.ACTION_STOP or PlaybackState.ACTION_SEEK_TO
 
         mediaSession?.setPlaybackState(
             PlaybackState.Builder()
-                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                .setState(state, playerControllerInstance?.currentPositionMs?.value ?: 0L, if (isPlaying) 1.0f else 0.0f)
                 .setActions(actions)
                 .build()
         )
@@ -190,6 +216,8 @@ class MusicPlaybackService : Service() {
                 .putString(MediaMetadata.METADATA_KEY_TITLE, title)
                 .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
                 .putString(MediaMetadata.METADATA_KEY_ALBUM, album)
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, playerControllerInstance?.durationMs?.value ?: 0L)
+                .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, cachedArtwork)
                 .build()
         )
     }
@@ -224,34 +252,20 @@ class MusicPlaybackService : Service() {
         val stopIntent = Intent(this, MusicPlaybackService::class.java).apply { action = ACTION_STOP }
         val stopPendingIntent = PendingIntent.getService(this, 4, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-        var artworkBitmap: Bitmap? = null
-        try {
-            if (artRes != 0) {
-                artworkBitmap = BitmapFactory.decodeResource(resources, artRes)
-            } else if (!artUri.isNullOrEmpty()) {
-                val input = contentResolver.openInputStream(Uri.parse(artUri))
-                artworkBitmap = BitmapFactory.decodeStream(input)
-                input?.close()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        if (artworkBitmap == null) {
-            artworkBitmap = createFallbackArtworkBitmap(title)
-        }
+        val artworkBitmap = cachedArtwork ?: createFallbackArtworkBitmap(title)
 
         val playPauseIcon = if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
 
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = (if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL_ID) else Notification.Builder(this))
+            .setStyle(Notification.MediaStyle().setMediaSession(mediaSession?.sessionToken).setShowActionsInCompactView(0, 1, 2))
             .setContentTitle(title)
             .setContentText(artist)
             .setSubText(if (album.isNotEmpty()) album else "Personal Music")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setLargeIcon(artworkBitmap)
             .setContentIntent(contentPendingIntent)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setPriority(Notification.PRIORITY_LOW)
             .setOngoing(isPlaying)
             .addAction(android.R.drawable.ic_media_previous, "Previous", prevPendingIntent)
             .addAction(playPauseIcon, if (isPlaying) "Pause" else "Play", playPausePendingIntent)
@@ -285,6 +299,7 @@ class MusicPlaybackService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        artworkScope.cancel()
         mediaSession?.release()
         super.onDestroy()
     }

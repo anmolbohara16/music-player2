@@ -175,10 +175,11 @@ object AudioScanner {
                             uri = contentUri.toString(),
                             albumArtUri = albumArtUri,
                             dateAdded = dateAdded,
-                            trackNumber = track,
+                            trackNumber = track % 1000,
+                            discNumber = (track / 1000).coerceAtLeast(1),
                             format = format,
-                            bitRate = "320 kbps",
-                            sampleRate = "44.1 kHz"
+                            bitRate = "Unknown",
+                            sampleRate = "Unknown"
                         )
                     )
                 }
@@ -247,7 +248,7 @@ object AudioScanner {
         } else rawArtist
 
         val album = if (rawAlbum.isBlank() || rawAlbum == "<unknown>" || rawAlbum.equals("Unknown Album", ignoreCase = true)) {
-            "Single"
+            "Unknown Album"
         } else rawAlbum
 
         // Check if title has "Artist - Title" format (common when tags are stored in filename)

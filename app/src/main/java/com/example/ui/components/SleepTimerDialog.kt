@@ -279,7 +279,7 @@ fun SleepTimerDialog(
                                 shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.testTag("set_custom_timer_button")
                             ) {
-                                Text("Set", color = Color.Black, fontWeight = FontWeight.Bold)
+                                Text("Set", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
                             }
                         }
 

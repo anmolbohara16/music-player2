@@ -14,7 +14,7 @@ data class OnlineSongMetadata(
     val genre: String = "",
     val releaseYear: String = "",
     val trackNumber: Int = 0,
-    val discNumber: Int = 1,
+    val discNumber: Int = 0,
     val durationMs: Long = 0L,
     val artworkUrl: String? = null,
     val lyrics: String? = null,

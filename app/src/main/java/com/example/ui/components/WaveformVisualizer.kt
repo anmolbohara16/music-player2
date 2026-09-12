@@ -35,6 +35,22 @@ fun WaveformVisualizer(
     barHeight: Dp = 18.dp,
     activeColor: Color = AccentCyan
 ) {
+    if (!isPlaying) {
+        Row(
+            modifier = modifier.height(barHeight),
+            horizontalArrangement = Arrangement.spacedBy(2.5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            repeat(barCount) {
+                Box(
+                    modifier = Modifier.width(barWidth).fillMaxHeight(0.25f)
+                        .clip(RoundedCornerShape(2.dp)).background(activeColor)
+                )
+            }
+        }
+        return
+    }
+
     val infiniteTransition = rememberInfiniteTransition(label = "wave_anim")
 
     val h1 by infiniteTransition.animateFloat(

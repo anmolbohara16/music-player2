@@ -165,19 +165,6 @@ fun PlayerOptionsBottomSheet(
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
-            // 1. Search on Web / Search Web Again
-            PlayerOptionItem(
-                icon = Icons.Rounded.AutoAwesome,
-                iconTint = AccentPurple,
-                title = if (song.isIdentified) "Search Web Again" else "Search on Web",
-                subtitle = "Identify track & fetch album art, year, and lyrics",
-                onClick = {
-                    onDismiss()
-                    onSearchWeb()
-                },
-                testTag = "option_search_web"
-            )
-
             // 2. Identify using Link
             PlayerOptionItem(
                 icon = Icons.Rounded.Link,

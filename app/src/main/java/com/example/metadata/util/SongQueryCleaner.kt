@@ -13,62 +13,31 @@ object SongQueryCleaner {
         Regex("""(?i)\b(free\s+download|visualizer|visualiser)\b""")
     )
 
-    private val LEGITIMATE_VERSIONS = listOf(
-        "live", "acoustic", "unplugged", "remix", "instrumental", "slowed", "lofi",
-        "speed up", "sped up", "extended", "radio edit", "cover", "reverb", "demo",
-        "orchestral", "piano version", "club mix", "dub mix", "vip mix"
-    )
-
-    /**
-     * Cleans promotional noise while keeping valid audio version identifiers.
-     */
     fun cleanSongTitle(rawTitle: String): String {
-        var title = rawTitle
-            .replace(Regex("""\.(mp3|m4a|flac|wav|ogg|aac|opus|wma)$""", RegexOption.IGNORE_CASE), "")
+        var title = rawTitle.replace(Regex("""\.(mp3|m4a|flac|wav|ogg|aac|opus|wma)$""", RegexOption.IGNORE_CASE), "")
             .replace('_', ' ')
+        // Remove promotional words only; unknown bracketed text may be part of the title.
+        JUNK_PATTERNS.forEach { title = it.replace(title, " ") }
+        return title.replace(Regex("""[\(\[\{]\s*[\)\]\}]"""), " ")
+            .replace(Regex("""\s+"""), " ").trim(' ', '|', '-')
+    }
 
-        // Check if there are bracketed/parenthesized version notes that should be preserved
-        val versionNotes = mutableListOf<String>()
-        val bracketPattern = Regex("""[\(\[\{](.*?)[\)\]\}]""")
-        val matches = bracketPattern.findAll(title)
+    fun normalized(value: String): String = cleanSongTitle(value).lowercase(java.util.Locale.ROOT)
+        .replace(Regex("""[^\p{L}\p{N}]+"""), " ").trim()
 
-        for (match in matches) {
-            val content = match.groupValues[1].trim()
-            val lower = content.lowercase()
-            val hasLegitVersion = LEGITIMATE_VERSIONS.any { lower.contains(it) }
-            val isJunk = JUNK_PATTERNS.any { it.containsMatchIn(content) }
+    fun useful(value: String?): Boolean = !value.isNullOrBlank() &&
+        value.trim().lowercase(java.util.Locale.ROOT) !in setOf("unknown", "<unknown>", "unknown artist", "unknown album", "null")
 
-            if (hasLegitVersion && !isJunk) {
-                // Keep legitimate audio versions like "(Live)" or "(Acoustic)"
-                versionNotes.add(content)
-            }
-        }
-
-        // Strip bracketed text first if it is junk
-        title = bracketPattern.replace(title) { matchResult ->
-            val content = matchResult.groupValues[1].trim()
-            val lower = content.lowercase()
-            val hasLegitVersion = LEGITIMATE_VERSIONS.any { lower.contains(it) }
-            val isJunk = JUNK_PATTERNS.any { it.containsMatchIn(content) }
-            if (hasLegitVersion && !isJunk) {
-                " (${content}) "
-            } else {
-                " "
-            }
-        }
-
-        // Clean any standalone junk words
-        for (pattern in JUNK_PATTERNS) {
-            title = pattern.replace(title, " ")
-        }
-
-        // Clean extra separators like | or - at the end
-        title = title.replace(Regex("""\s*[\|\-\~]\s*$"""), "")
-            .replace(Regex("""^\s*[\|\-\~]\s*"""), "")
-            .replace(Regex("""\s+"""), " ")
-            .trim()
-
-        return title.ifBlank { rawTitle.trim() }
+    fun versions(value: String): Set<String> {
+        val normalized = normalized(value)
+        val patterns = mapOf(
+            "live" to "live", "acoustic" to "acoustic", "unplugged" to "unplugged",
+            "remaster" to "remaster(?:ed)?", "slowed" to "slow(?:ed)?", "lofi" to "lo ?fi",
+            "speed" to "(?:sped|speed(?:ed)?) up", "remix" to "remix", "instrumental" to "instrumental",
+            "cover" to "cover", "demo" to "demo", "radio" to "radio edit", "extended" to "extended",
+            "reverb" to "reverb", "mono" to "mono", "stereo" to "stereo"
+        )
+        return patterns.filterValues { Regex("\\b(?:$it)\\b").containsMatchIn(normalized) }.keys
     }
 
     /**
@@ -94,7 +63,7 @@ object SongQueryCleaner {
             }
         }
 
-        val artist = if (fallbackArtist.isNotBlank() && fallbackArtist != "Unknown" && fallbackArtist != "<unknown>") {
+        val artist = if (useful(fallbackArtist)) {
             fallbackArtist
         } else {
             ""
@@ -108,8 +77,8 @@ object SongQueryCleaner {
      */
     fun buildSearchQuery(title: String, artist: String, album: String = ""): String {
         val cleanTitle = cleanSongTitle(title)
-        val validArtist = if (artist.isNotBlank() && artist != "Unknown" && artist != "<unknown>") artist else ""
-        val validAlbum = if (album.isNotBlank() && album != "Unknown" && album != "<unknown>" && album != cleanTitle) album else ""
+        val validArtist = if (useful(artist)) artist else ""
+        val validAlbum = if (useful(album) && album != cleanTitle) album else ""
 
         val parts = mutableListOf<String>()
         if (validArtist.isNotBlank()) parts.add(validArtist)
@@ -130,56 +99,19 @@ object SongQueryCleaner {
         candidateArtist: String,
         candidateDurationMs: Long
     ): Pair<MatchConfidence, String> {
-        val cleanTargetTitle = cleanSongTitle(targetTitle).lowercase().trim()
-        val cleanCandidateTitle = cleanSongTitle(candidateTitle).lowercase().trim()
-
-        val cleanTargetArtist = targetArtist.lowercase().trim()
-        val cleanCandidateArtist = candidateArtist.lowercase().trim()
-
-        val titleMatch = isFuzzyMatch(cleanTargetTitle, cleanCandidateTitle)
-        val artistKnown = cleanTargetArtist.isNotBlank() && cleanTargetArtist != "unknown" && cleanTargetArtist != "<unknown>"
-        val artistMatch = if (artistKnown) isFuzzyMatch(cleanTargetArtist, cleanCandidateArtist) else false
-
-        var durationClose = false
-        var durationDeltaSeconds = 0L
-        if (targetDurationMs > 0 && candidateDurationMs > 0) {
-            durationDeltaSeconds = abs(targetDurationMs - candidateDurationMs) / 1000
-            durationClose = durationDeltaSeconds <= 12
-        }
-
+        val titleMatch = normalized(targetTitle) == normalized(candidateTitle) && useful(targetTitle)
+        val artistMatch = useful(targetArtist) && useful(candidateArtist) && normalized(targetArtist) == normalized(candidateArtist)
+        val versionMatch = versions(targetTitle) == versions(candidateTitle)
+        val durationKnown = targetDurationMs > 0 && candidateDurationMs > 0
+        val delta = abs(targetDurationMs - candidateDurationMs)
+        val durationClose = durationKnown && delta <= 3000
         return when {
-            titleMatch && (artistMatch || !artistKnown) && durationClose -> {
-                val secStr = if (targetDurationMs > 0) " (duration delta: ${durationDeltaSeconds}s)" else ""
-                Pair(MatchConfidence.HIGH, "Title, artist, and audio duration match closely$secStr.")
-            }
-            titleMatch && artistMatch -> {
-                Pair(MatchConfidence.HIGH, "Title and artist match.")
-            }
-            titleMatch && durationClose -> {
-                Pair(MatchConfidence.MEDIUM, "Title matches and duration is close (${durationDeltaSeconds}s diff).")
-            }
-            titleMatch -> {
-                Pair(MatchConfidence.MEDIUM, "Song title matches online record.")
-            }
-            artistMatch -> {
-                Pair(MatchConfidence.LOW, "Artist matches, but title differs.")
-            }
-            else -> {
-                Pair(MatchConfidence.LOW, "Possible match based on keyword search.")
-            }
+            !versionMatch -> MatchConfidence.LOW to "Different recording version; review required."
+            durationKnown && delta > 10000 -> MatchConfidence.LOW to "Duration differs by ${delta / 1000}s."
+            useful(targetArtist) && useful(candidateArtist) && !artistMatch -> MatchConfidence.LOW to "Artist differs; review required."
+            titleMatch && artistMatch && durationClose -> MatchConfidence.HIGH to "Title, artist, version and duration agree (Δ ${delta / 1000}s)."
+            titleMatch -> MatchConfidence.MEDIUM to "Title agrees; artist or duration needs verification."
+            else -> MatchConfidence.LOW to "Search suggestion only; verify every field."
         }
-    }
-
-    private fun isFuzzyMatch(s1: String, s2: String): Boolean {
-        if (s1 == s2) return true
-        if (s1.contains(s2) || s2.contains(s1)) return true
-
-        val words1 = s1.split(Regex("""[\s\-_,.]+""")).filter { it.length > 1 }.toSet()
-        val words2 = s2.split(Regex("""[\s\-_,.]+""")).filter { it.length > 1 }.toSet()
-
-        if (words1.isEmpty() || words2.isEmpty()) return false
-        val intersection = words1.intersect(words2)
-        val ratio = intersection.size.toDouble() / minOf(words1.size, words2.size)
-        return ratio >= 0.6
     }
 }

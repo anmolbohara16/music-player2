@@ -26,8 +26,9 @@ class MusicBrainzProvider(
         album: String,
         durationMs: Long
     ): List<OnlineSongMetadata> = withContext(Dispatchers.IO) {
+        MusicBrainzRateLimit.awaitTurn()
         val cleanTitle = SongQueryCleaner.cleanSongTitle(title)
-        val cleanArtist = if (artist != "Unknown" && artist != "<unknown>") artist else ""
+        val cleanArtist = if (SongQueryCleaner.useful(artist)) artist else ""
 
         val queryBuilder = StringBuilder()
         queryBuilder.append("recording:\"").append(cleanTitle.replace("\"", "\\\"")).append("\"")
@@ -45,8 +46,8 @@ class MusicBrainzProvider(
             .build()
 
         try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext emptyList()
+            client.awaitResponse(request).use { response ->
+                if (!response.isSuccessful) throw MetadataHttpException(response.code, response.header("Retry-After")?.toLongOrNull())
                 val body = response.body?.string() ?: return@withContext emptyList()
                 val root = JSONObject(body)
                 val recordings = root.optJSONArray("recordings") ?: return@withContext emptyList()
@@ -58,11 +59,10 @@ class MusicBrainzProvider(
                     val recId = rec.optString("id", "")
                     val recLength = rec.optLong("length", 0L)
 
-                    var recArtist = ""
                     val artistCredit = rec.optJSONArray("artist-credit")
-                    if (artistCredit != null && artistCredit.length() > 0) {
-                        val artistObj = artistCredit.getJSONObject(0)
-                        recArtist = artistObj.optString("name", "")
+                    val recArtist = if (artistCredit == null) "" else (0 until artistCredit.length()).joinToString("") {
+                        val credit = artistCredit.getJSONObject(it)
+                        credit.optString("name", "") + credit.optString("joinphrase", "")
                     }
 
                     var recAlbum = ""
@@ -72,7 +72,10 @@ class MusicBrainzProvider(
 
                     val releases = rec.optJSONArray("releases")
                     if (releases != null && releases.length() > 0) {
-                        val firstRelease = releases.getJSONObject(0)
+                        val releaseList = (0 until releases.length()).map { releases.getJSONObject(it) }
+                        val firstRelease = releaseList.firstOrNull {
+                            SongQueryCleaner.useful(album) && SongQueryCleaner.normalized(it.optString("title")) == SongQueryCleaner.normalized(album)
+                        } ?: releaseList.first()
                         recAlbum = firstRelease.optString("title", "")
                         releaseId = firstRelease.optString("id", "")
                         val date = firstRelease.optString("date", "")
@@ -114,7 +117,7 @@ class MusicBrainzProvider(
                             title = SongQueryCleaner.cleanSongTitle(recTitle),
                             artist = recArtist,
                             album = recAlbum,
-                            albumArtist = recArtist,
+                            albumArtist = "",
                             releaseYear = releaseYear,
                             trackNumber = trackNumber,
                             durationMs = recLength,
@@ -130,7 +133,7 @@ class MusicBrainzProvider(
                 results
             }
         } catch (e: Exception) {
-            emptyList()
+            throw e
         }
     }
 }

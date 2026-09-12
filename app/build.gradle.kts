@@ -46,7 +46,7 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    // Use Android's standard local debug keystore.
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -137,4 +137,10 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+// Android 36 Robolectric tests need Java 21+. This optional setting lets the
+// test JVM differ from the JDK used by the Android compiler.
+tasks.withType<Test>().configureEach {
+  providers.gradleProperty("testJavaHome").orNull?.let { executable = "$it/bin/java" }
 }

@@ -41,6 +41,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -53,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import com.example.model.Song
 import com.example.model.SortOption
 import com.example.ui.components.SongListItem
+import com.example.ui.components.AppScreenHeader
+import com.example.ui.components.CollectionPlaybackActions
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.AccentPurple
 import com.example.ui.theme.AccentPurpleDarkText
@@ -96,6 +102,7 @@ fun SongsScreen(
     onOpenLyrics: ((Song) -> Unit)? = null,
     onDeleteSong: (Song) -> Unit,
     onRescanLibrary: () -> Unit,
+    onLibraryWebSearch: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -106,13 +113,12 @@ fun SongsScreen(
         listState.scrollToItem(0)
     }
 
-    val filteredSongs = if (searchQuery.isBlank()) {
-        songs
-    } else {
-        songs.filter {
-            it.title.contains(searchQuery, ignoreCase = true) ||
-            it.artist.contains(searchQuery, ignoreCase = true) ||
-            it.album.contains(searchQuery, ignoreCase = true)
+    val filteredSongs by produceState(initialValue = songs, songs, searchQuery) {
+        if (searchQuery.isNotBlank()) delay(180)
+        value = withContext(Dispatchers.Default) {
+            if (searchQuery.isBlank()) songs else songs.filter {
+                it.title.contains(searchQuery, true) || it.artist.contains(searchQuery, true) || it.album.contains(searchQuery, true)
+            }
         }
     }
 
@@ -122,70 +128,22 @@ fun SongsScreen(
             .testTag("songs_screen")
     ) {
         // Header: "ALL SONGS" and track count only (sorting removed from subtitle)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    text = "ALL SONGS",
-                    style = MaterialTheme.typography.headlineMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp
-                    ),
-                    color = TextPrimary
-                )
-                Text(
-                    text = "${filteredSongs.size} tracks",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
+        AppScreenHeader(
+            title = "Your songs",
+            subtitle = "${filteredSongs.size} tracks",
+            trailing = {
+                IconButton(onClick = onOpenSortDialog, modifier = Modifier.testTag("sort_songs_button")) {
+                    Icon(Icons.Rounded.Sort, contentDescription = "Sort songs", tint = AccentPurple)
+                }
             }
+        )
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = onRescanLibrary,
-                    enabled = !isScanning,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(DarkCard)
-                        .testTag("rescan_library_button")
-                ) {
-                    if (isScanning) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = AccentPurple
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Rounded.Refresh,
-                            contentDescription = "Rescan Library",
-                            tint = TextSecondary
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                IconButton(
-                    onClick = onOpenSortDialog,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(DarkCard)
-                        .testTag("sort_songs_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Sort,
-                        contentDescription = "Sort Songs",
-                        tint = AccentCyan
-                    )
-                }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(onClick = onRescanLibrary, enabled = !isScanning, modifier = Modifier.weight(1f).testTag("rescan_library_button")) {
+                Icon(Icons.Rounded.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Rescan")
+            }
+            Button(onClick = onLibraryWebSearch, enabled = songs.isNotEmpty(), modifier = Modifier.weight(1f).testTag("library_web_search_button")) {
+                Icon(Icons.Rounded.Search, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Web Search")
             }
         }
 
@@ -246,49 +204,12 @@ fun SongsScreen(
 
         // Action Row: Play All & Shuffle
         if (filteredSongs.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Button(
-                    onClick = {
-                        if (filteredSongs.isNotEmpty()) {
-                            onPlaySong(filteredSongs.first(), filteredSongs)
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentPurple,
-                        contentColor = AccentPurpleDarkText
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("play_all_songs_button")
-                ) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Play All", fontWeight = FontWeight.Bold)
-                }
-
-                Button(
-                    onClick = onShuffleAll,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = GlassCardBackground,
-                        contentColor = AccentPurple
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .border(1.dp, GlassCardBorder, RoundedCornerShape(12.dp))
-                        .testTag("shuffle_all_songs_button")
-                ) {
-                    Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Shuffle", fontWeight = FontWeight.SemiBold)
-                }
-            }
+            CollectionPlaybackActions(
+                onPlay = { onPlaySong(filteredSongs.first(), filteredSongs) },
+                onShuffle = { val shuffled = filteredSongs.shuffled(); shuffled.firstOrNull()?.let { onPlaySong(it, shuffled) } },
+                playLabel = "Play all",
+                modifier = Modifier.testTag("songs_playback_actions")
+            )
         }
 
         // List
@@ -318,7 +239,7 @@ fun SongsScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 100.dp),
+                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 items(filteredSongs, key = { it.id }) { song ->
@@ -334,6 +255,10 @@ fun SongsScreen(
                         onPlayNext = { onPlayNext(song) },
                         onAddToPlaylist = { onAddToPlaylist(song) },
                         onShowInfo = { onShowSongInfo(song) },
+                        onSearchWeb = onSearchWeb?.let { { it(song) } },
+                        onIdentifyUsingLink = onIdentifyUsingLink?.let { { it(song) } },
+                        onEditMetadata = onEditMetadata?.let { { it(song) } },
+                        onOpenLyrics = onOpenLyrics?.let { { it(song) } },
                         onDeleteSong = { onDeleteSong(song) }
                     )
                 }

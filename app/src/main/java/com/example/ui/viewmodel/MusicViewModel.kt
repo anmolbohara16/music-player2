@@ -17,6 +17,11 @@ import com.example.model.Song
 import com.example.model.SortOption
 import com.example.service.MusicPlaybackService
 import com.example.service.MusicPlayerController
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flowOn
+import com.example.metadata.service.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,17 +39,25 @@ enum class MainTab(val title: String) {
     ALBUMS("Albums"),
     ARTISTS("Artists"),
     PLAYLISTS("Playlists"),
-    FAVORITES("Favorites")
+    FAVORITES("Favorites"),
+    PROFILE("Library")
 }
 
+@OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val database = MusicDatabase.getDatabase(application)
-    val repository = MusicRepository(application, database, viewModelScope)
-    val controller = MusicPlayerController(application, repository, viewModelScope)
+    private val playback = (application as com.example.MusicApplication).playback
+    val repository = playback.repository
+    val controller = playback.controller
 
     init {
         MusicPlaybackService.playerControllerInstance = controller
+    }
+
+    val excludedSongs = database.musicDao().observeExcludedSongs().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    fun restoreExcludedSong(id: Long) {
+        viewModelScope.launch { database.musicDao().removeExcludedSong(id); refreshMusicLibrary() }
     }
 
     // Repository flows
@@ -93,6 +106,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _selectedPlaylist = MutableStateFlow<Playlist?>(null)
     val selectedPlaylist: StateFlow<Playlist?> = _selectedPlaylist.asStateFlow()
+
+    private val _isSettingsOpen = MutableStateFlow(false)
+    val isSettingsOpen: StateFlow<Boolean> = _isSettingsOpen.asStateFlow()
 
     val playlistSongs: StateFlow<List<Song>> = _selectedPlaylist.flatMapLatest { playlist ->
         if (playlist != null) {
@@ -193,17 +209,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     // Filtered / Sorted songs for Songs screen
     val sortedSongs: StateFlow<List<Song>> = combine(allSongs, _sortOption) { list, sort ->
         repository.sortSongs(list, sort)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Search results across Songs, Albums, Artists
-    val searchResultsSongs: StateFlow<List<Song>> = combine(allSongs, _searchQuery) { list, query ->
+    val searchResultsSongs: StateFlow<List<Song>> = combine(allSongs, _searchQuery.debounce(200)) { list, query ->
         if (query.isBlank()) emptyList()
         else list.filter {
             it.title.contains(query, ignoreCase = true) ||
             it.artist.contains(query, ignoreCase = true) ||
             it.album.contains(query, ignoreCase = true)
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun showToast(message: String) {
         viewModelScope.launch(Dispatchers.Main) {
@@ -218,6 +234,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _selectedArtist.value = null
         _selectedPlaylist.value = null
         _isSearchActive.value = false
+        _isSettingsOpen.value = false
     }
 
     fun openAlbum(album: Album) {
@@ -254,6 +271,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
     }
+
+    fun openSettings() { _isSettingsOpen.value = true }
+
+    fun closeSettings() { _isSettingsOpen.value = false }
 
     fun setSortOption(option: SortOption) {
         _sortOption.value = option
@@ -394,16 +415,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         showToast("Playing next")
     }
 
-    fun removeFromQueue(index: Int) {
-        if (queue.value.size <= 5) {
-            showToast("At least 5 songs must remain in the queue.")
-            return
-        }
-        val removed = controller.removeFromQueue(index)
-        if (!removed) {
-            showToast("At least 5 songs must remain in the queue.")
-        }
-    }
+    fun removeFromQueue(index: Int) { controller.removeFromQueue(index) }
+    fun clearQueue() { controller.clearQueue() }
 
     fun toggleFavorite(song: Song) {
         viewModelScope.launch {
@@ -529,80 +542,86 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Metadata Search & Identification
+    private var metadataJob: Job? = null
+    private var batchJob: Job? = null
+    private val _metadataCandidates = MutableStateFlow<List<OnlineSongMetadata>>(emptyList())
+    val metadataCandidates = _metadataCandidates.asStateFlow()
+    private val _isSavingMetadata = MutableStateFlow(false)
+    val isSavingMetadata = _isSavingMetadata.asStateFlow()
+    private val _librarySearch = MutableStateFlow(LibrarySearchState())
+    val librarySearch = _librarySearch.asStateFlow()
+    private val _isLibrarySearchOpen = MutableStateFlow(false)
+    val isLibrarySearchOpen = _isLibrarySearchOpen.asStateFlow()
+
+    fun openLibrarySearch() {
+        _isLibrarySearchOpen.value = true
+        if (_librarySearch.value.running || _librarySearch.value.total > 0) return
+        batchJob = viewModelScope.launch {
+            LibraryMetadataSearch(metadataService::searchCandidates, metadataService::enrichLyrics,
+                { song, result, fields -> repository.applyOnlineMetadata(song, result, fields, automatic = true) })
+                .run(allSongs.value.toList()) { _librarySearch.value = it }
+        }
+    }
+    fun dismissLibrarySearch() { _isLibrarySearchOpen.value = false }
+    fun cancelLibrarySearch() { batchJob?.cancel() }
+    fun newLibrarySearch() {
+        if (_librarySearch.value.running) { _isLibrarySearchOpen.value = true; return }
+        _librarySearch.value = LibrarySearchState()
+        openLibrarySearch()
+    }
+    fun reviewBatchEntry(entry: BatchEntry) {
+        _songForMetadata.value = allSongs.value.find { it.id == entry.song.id } ?: entry.song
+        _metadataCandidates.value = entry.candidates
+        _metadataSearchResult.value = entry.candidates.firstOrNull()
+        _metadataSearchError.value = null
+        _isMetadataSearchOpen.value = true
+    }
+    fun selectMetadataCandidate(candidate: OnlineSongMetadata) { _metadataSearchResult.value = candidate }
+
     fun searchSongOnWeb(song: Song) {
+        metadataJob?.cancel()
         _songForMetadata.value = song
         _isMetadataSearchOpen.value = true
         _isSearchingMetadata.value = true
         _metadataSearchResult.value = null
         _metadataSearchError.value = null
-
-        viewModelScope.launch {
+        _metadataCandidates.value = emptyList()
+        metadataJob = viewModelScope.launch {
             try {
-                val result = metadataService.searchOnlineForSong(song)
-                _isSearchingMetadata.value = false
-                if (result != null) {
-                    _metadataSearchResult.value = result
-                } else {
-                    _metadataSearchError.value = "No matching track found online."
-                }
-            } catch (e: Exception) {
-                _isSearchingMetadata.value = false
-                _metadataSearchError.value = "Unable to connect to search servers: ${e.localizedMessage ?: "Unknown error"}"
-            }
+                val candidates = metadataService.searchCandidates(song)
+                _metadataCandidates.value = candidates
+                _metadataSearchResult.value = candidates.firstOrNull()?.let { metadataService.enrichLyrics(it) }
+                if (candidates.isEmpty()) _metadataSearchError.value = "No matching track found online."
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _metadataSearchError.value = e.message ?: "Unable to search providers." }
+            finally { _isSearchingMetadata.value = false }
         }
     }
-
-    fun retryMetadataSearch() {
-        val song = _songForMetadata.value ?: return
-        searchSongOnWeb(song)
-    }
-
+    fun retryMetadataSearch() { _songForMetadata.value?.let { searchSongOnWeb(it) } }
     fun closeMetadataSearch() {
+        if (_isSavingMetadata.value) return
+        metadataJob?.cancel()
         _isMetadataSearchOpen.value = false
         _isSearchingMetadata.value = false
         _metadataSearchResult.value = null
         _metadataSearchError.value = null
         _songForMetadata.value = null
     }
-
     fun applyOnlineMetadata(song: Song, result: OnlineSongMetadata, acceptedFields: Set<String>) {
+        if (_isSavingMetadata.value) return
+        _isSavingMetadata.value = true
         viewModelScope.launch {
-            val title = if (acceptedFields.contains("title")) result.title else song.title
-            val artist = if (acceptedFields.contains("artist")) result.artist else song.artist
-            val album = if (acceptedFields.contains("album")) result.album else song.album
-            val albumArtist = if (acceptedFields.contains("albumArtist")) result.albumArtist else song.albumArtist
-            val genre = if (acceptedFields.contains("genre")) result.genre else song.genre
-            val releaseYear = if (acceptedFields.contains("year")) result.releaseYear else song.releaseYear
-            val trackNumber = if (acceptedFields.contains("trackNumber")) result.trackNumber else song.trackNumber
-            val artworkUri = if (acceptedFields.contains("artwork")) result.artworkUrl else song.albumArtUri
-            val lyrics = if (acceptedFields.contains("lyrics")) result.lyrics else song.lyrics
-            val syncedLyrics = if (acceptedFields.contains("lyrics")) result.syncedLyrics else song.syncedLyrics
-
-            val entity = SongMetadataEntity(
-                songId = song.id,
-                title = title,
-                artist = artist,
-                album = album,
-                albumArtist = albumArtist,
-                genre = genre,
-                releaseYear = releaseYear,
-                trackNumber = trackNumber,
-                discNumber = result.discNumber,
-                artworkUri = artworkUri,
-                lyrics = lyrics,
-                syncedLyrics = syncedLyrics,
-                isrc = result.isrc ?: song.isrc,
-                musicBrainzId = result.musicBrainzId ?: song.musicBrainzId,
-                spotifyId = result.spotifyId ?: song.spotifyId,
-                youtubeUrl = result.youtubeUrl ?: song.youtubeUrl,
-                isIdentified = true,
-                isManuallyEdited = false
-            )
-
-            repository.saveSongMetadata(entity)
-            closeMetadataSearch()
-            showToast("Metadata updated: $title")
+            try {
+                repository.applyOnlineMetadata(song, result, acceptedFields)
+                _librarySearch.value = _librarySearch.value.copy(entries = _librarySearch.value.entries.map {
+                    if (it.song.id == song.id) it.copy(outcome = BatchOutcome.UPDATED, detail = "Selected fields applied") else it
+                })
+                _isSavingMetadata.value = false
+                closeMetadataSearch()
+                showToast("Selected metadata saved")
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _metadataSearchError.value = "Could not save: ${e.message}" }
+            finally { _isSavingMetadata.value = false }
         }
     }
 
@@ -612,6 +631,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun closeIdentifyByLink() {
+        metadataJob?.cancel()
         _isIdentifyByLinkOpen.value = false
         _isResolvingLink.value = false
     }
@@ -623,19 +643,23 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        metadataJob?.cancel()
         _isResolvingLink.value = true
-        viewModelScope.launch {
+        metadataJob = viewModelScope.launch {
             try {
                 val resolved = metadataService.identifyUsingLink(url, song)
                 _isResolvingLink.value = false
                 if (resolved != null) {
-                    closeIdentifyByLink()
+                    _isIdentifyByLinkOpen.value = false
                     _songForMetadata.value = song
                     _isMetadataSearchOpen.value = true
+                    _metadataCandidates.value = emptyList()
+                    _metadataSearchError.value = null
                     _metadataSearchResult.value = resolved
                 } else {
                     showToast("Could not retrieve track information from link.")
                 }
+            } catch (e: CancellationException) { throw e
             } catch (e: Exception) {
                 _isResolvingLink.value = false
                 showToast("Error processing link: ${e.localizedMessage}")
@@ -655,9 +679,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveManualMetadata(metadata: SongMetadataEntity) {
         viewModelScope.launch {
-            repository.saveSongMetadata(metadata)
-            closeEditMetadata()
-            showToast("Metadata saved")
+            try {
+                repository.saveSongMetadata(metadata)
+                closeEditMetadata()
+                showToast("Metadata saved")
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { showToast("Could not save metadata: ${e.message}") }
         }
     }
 
@@ -681,6 +708,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
-        controller.release()
+        // Application-owned playback continues when this screen is closed.
     }
 }

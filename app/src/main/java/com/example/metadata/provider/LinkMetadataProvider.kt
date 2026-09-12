@@ -20,10 +20,15 @@ class LinkMetadataProvider(
 ) : LinkResolverProvider {
 
     override fun canHandle(url: String): Boolean {
-        val lower = url.lowercase().trim()
-        return lower.contains("youtube.com") ||
-                lower.contains("youtu.be") ||
-                lower.contains("spotify.com")
+        val uri = runCatching { java.net.URI(url.trim()) }.getOrNull() ?: return false
+        if (uri.scheme != "https" || uri.userInfo != null) return false
+        return when (uri.host?.lowercase()) {
+            "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com" ->
+                (uri.path == "/watch" && uri.rawQuery.orEmpty().split("&").any { it.startsWith("v=") && it.length > 2 }) || uri.path.startsWith("/shorts/")
+            "youtu.be" -> uri.path.length > 1
+            "open.spotify.com" -> Regex("/track/[a-zA-Z0-9]+/?").matches(uri.path)
+            else -> false
+        }
     }
 
     override suspend fun resolveLink(url: String): OnlineSongMetadata? = withContext(Dispatchers.IO) {
@@ -52,9 +57,10 @@ class LinkMetadataProvider(
                 .header("User-Agent", "MusicPlayerAndroid/1.0")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) return null
-            val body = response.body?.string() ?: return null
+            val body = client.awaitResponse(request).use { response ->
+                if (!response.isSuccessful) throw MetadataHttpException(response.code)
+                response.body?.string()
+            } ?: return null
             val json = JSONObject(body)
 
             val rawTitle = json.optString("title", "")
@@ -66,32 +72,14 @@ class LinkMetadataProvider(
             val cleanTitle = SongQueryCleaner.cleanSongTitle(parsedTitle)
             val cleanArtist = if (parsedArtist.isNotBlank()) parsedArtist else authorName
 
-            // Try enriching with iTunes data to get full album, genre, year, high-res artwork
-            val enrichedList = itunesProvider.searchMetadata(cleanTitle, cleanArtist)
-            val topEnriched = enrichedList.firstOrNull()
-
-            return if (topEnriched != null) {
-                topEnriched.copy(
-                    youtubeUrl = url,
-                    artworkUrl = topEnriched.artworkUrl ?: thumbnailUrl.takeIf { it.isNotBlank() },
-                    confidence = MatchConfidence.HIGH,
-                    confidenceReason = "Resolved from YouTube link and matched official track data."
-                )
-            } else {
-                OnlineSongMetadata(
-                    title = cleanTitle,
-                    artist = cleanArtist,
-                    album = "",
-                    albumArtist = cleanArtist,
-                    artworkUrl = thumbnailUrl.takeIf { it.isNotBlank() },
-                    youtubeUrl = url,
-                    sourceName = "YouTube Link",
-                    confidence = MatchConfidence.MEDIUM,
-                    confidenceReason = "Extracted from YouTube link."
-                )
-            }
+            return OnlineSongMetadata(
+                title = cleanTitle, artist = cleanArtist,
+                artworkUrl = thumbnailUrl.takeIf { it.isNotBlank() }, youtubeUrl = url,
+                sourceName = "YouTube Link", confidence = MatchConfidence.MEDIUM,
+                confidenceReason = "Video title and channel credit; verify artist and version."
+            )
         } catch (e: Exception) {
-            return null
+            throw e
         }
     }
 
@@ -105,9 +93,10 @@ class LinkMetadataProvider(
                 .header("User-Agent", "MusicPlayerAndroid/1.0")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) return null
-            val body = response.body?.string() ?: return null
+            val body = client.awaitResponse(request).use { response ->
+                if (!response.isSuccessful) throw MetadataHttpException(response.code)
+                response.body?.string()
+            } ?: return null
             val json = JSONObject(body)
 
             val rawTitle = json.optString("title", "")
@@ -119,30 +108,14 @@ class LinkMetadataProvider(
             val (parsedArtist, parsedTitle) = SongQueryCleaner.parseArtistAndTitle(rawTitle)
             val cleanTitle = SongQueryCleaner.cleanSongTitle(parsedTitle)
 
-            // Try enriching with iTunes
-            val enrichedList = itunesProvider.searchMetadata(cleanTitle, parsedArtist)
-            val topEnriched = enrichedList.firstOrNull()
-
-            return if (topEnriched != null) {
-                topEnriched.copy(
-                    spotifyId = spotifyId,
-                    artworkUrl = topEnriched.artworkUrl ?: thumbnailUrl.takeIf { it.isNotBlank() },
-                    confidence = MatchConfidence.HIGH,
-                    confidenceReason = "Resolved from Spotify link."
-                )
-            } else {
-                OnlineSongMetadata(
-                    title = cleanTitle,
-                    artist = parsedArtist,
-                    artworkUrl = thumbnailUrl.takeIf { it.isNotBlank() },
-                    spotifyId = spotifyId,
-                    sourceName = "Spotify Link",
-                    confidence = MatchConfidence.MEDIUM,
-                    confidenceReason = "Extracted from Spotify link."
-                )
-            }
+            return OnlineSongMetadata(
+                title = cleanTitle, artist = parsedArtist,
+                artworkUrl = thumbnailUrl.takeIf { it.isNotBlank() }, spotifyId = spotifyId,
+                sourceName = "Spotify Link", confidence = MatchConfidence.MEDIUM,
+                confidenceReason = "Spotify embed supplies limited metadata; missing fields are left unchanged."
+            )
         } catch (e: Exception) {
-            return null
+            throw e
         }
     }
 }

@@ -21,6 +21,18 @@ data class PlaybackHistoryEntity(
     val playCount: Int = 1
 )
 
+@Entity(
+    tableName = "playback_events",
+    indices = [Index(value = ["songId"]), Index(value = ["playedAt"])]
+)
+data class PlaybackEventEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val songId: Long,
+    val playedAt: Long = System.currentTimeMillis(),
+    val positionMs: Long = 0L
+)
+
 @Entity(tableName = "playlists")
 data class PlaylistEntity(
     @PrimaryKey(autoGenerate = true)
@@ -96,5 +108,4 @@ data class SongMetadataEntity(
     val isManuallyEdited: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis()
 )
-
 

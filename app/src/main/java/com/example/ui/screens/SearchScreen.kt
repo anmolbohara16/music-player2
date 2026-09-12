@@ -24,6 +24,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextButton
+import com.example.model.Album
+import com.example.model.Artist
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -54,6 +57,8 @@ fun SearchScreen(
     onAddToPlaylist: (Song) -> Unit,
     onShowSongInfo: (Song) -> Unit,
     onDeleteSong: (Song) -> Unit = {},
+    onOpenAlbum: (Album) -> Unit = {},
+    onOpenArtist: (Artist) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -149,9 +154,23 @@ fun SearchScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 100.dp),
+                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
+                item {
+                    Text("Explore matches", Modifier.padding(12.dp), style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                    results.filter { it.album.contains(query, true) }.distinctBy { it.album to it.artist }.take(4).forEach { song ->
+                        TextButton(onClick = { onOpenAlbum(Album(song.album, song.artist, results.count { it.album == song.album && it.artist == song.artist }, song.albumArtUri, song.albumArtRes)) }) {
+                            Text("Album · ${song.album} — ${song.artist}")
+                        }
+                    }
+                    results.filter { it.artist.contains(query, true) }.distinctBy { it.artist }.take(4).forEach { song ->
+                        TextButton(onClick = { onOpenArtist(Artist(song.artist, results.count { it.artist == song.artist }, results.filter { it.artist == song.artist }.map { it.album }.distinct().size)) }) {
+                            Text("Artist · ${song.artist}")
+                        }
+                    }
+                    Text("Songs · ${results.size}", Modifier.padding(12.dp), style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                }
                 items(results, key = { it.id }) { song ->
                     val isCurrent = currentSong?.id == song.id
                     val isThisPlaying = isPlaying && isCurrent

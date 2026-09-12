@@ -18,6 +18,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -44,6 +47,8 @@ import java.util.Locale
 @Composable
 fun SongInfoDialog(
     song: Song?,
+    onEdit: () -> Unit = {},
+    onIdentify: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     if (song == null) return
@@ -72,6 +77,7 @@ fun SongInfoDialog(
                 .padding(horizontal = 20.dp, vertical = 8.dp)
                 .padding(bottom = 24.dp)
                 .testTag("song_info_sheet")
+                .verticalScroll(rememberScrollState())
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -95,6 +101,10 @@ fun SongInfoDialog(
                 }
             }
 
+            Row {
+                TextButton(onClick = onEdit) { Text("Edit Metadata") }
+                TextButton(onClick = onIdentify) { Text("Identify Using Link") }
+            }
             Spacer(modifier = Modifier.height(16.dp))
 
             Column(
@@ -113,6 +123,10 @@ fun SongInfoDialog(
                 InfoRow("Bitrate", song.bitRate)
                 InfoRow("Sample Rate", song.sampleRate)
                 InfoRow("Genre", song.genre)
+                InfoRow("Metadata", if (song.isManuallyEdited) "Manually edited" else if (song.isIdentified) "Identified online" else "Audio file tags")
+                song.releaseYear?.let { InfoRow("Year", it) }
+                song.albumArtist?.let { InfoRow("Album artist", it) }
+                if (song.trackNumber > 0) InfoRow("Track / disc", "${song.trackNumber} / ${song.discNumber}")
 
                 val dateFormatted = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(song.dateAdded))
                 InfoRow("Date Added", dateFormatted)

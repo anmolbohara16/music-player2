@@ -1,148 +1,70 @@
 package com.example.metadata.service
 
-import com.example.metadata.model.MatchConfidence
-import com.example.metadata.model.OnlineSongMetadata
-import com.example.metadata.provider.ItunesMetadataProvider
-import com.example.metadata.provider.LinkMetadataProvider
-import com.example.metadata.provider.LrclibLyricsProvider
-import com.example.metadata.provider.MetadataProvider
-import com.example.metadata.provider.MusicBrainzProvider
+import com.example.metadata.model.*
+import com.example.metadata.provider.*
 import com.example.model.Song
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 class MetadataSearchService(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
-        .build(),
-    private val itunesProvider: ItunesMetadataProvider = ItunesMetadataProvider(client),
-    private val musicBrainzProvider: MusicBrainzProvider = MusicBrainzProvider(client),
-    private val lyricsProvider: LrclibLyricsProvider = LrclibLyricsProvider(client),
-    private val linkProvider: LinkMetadataProvider = LinkMetadataProvider(client, itunesProvider)
+    client: OkHttpClient = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).callTimeout(15, TimeUnit.SECONDS).build(),
+    private val providers: List<MetadataProvider> = listOf(ItunesMetadataProvider(client), MusicBrainzProvider(client)),
+    private val lyricsProvider: LyricsProvider = LrclibLyricsProvider(client),
+    private val linkProvider: LinkResolverProvider = LinkMetadataProvider(client)
 ) {
-    private val cache = ConcurrentHashMap<String, OnlineSongMetadata>()
+    private val lyricsMutex = Mutex()
+    private val lyricCache = linkedMapOf<OnlineSongMetadata, OnlineSongMetadata>()
+    private val mutex = Mutex()
+    // Bounded session cache, including no-match results. Failed/partial requests remain retryable.
+    private val cache = linkedMapOf<List<String>, List<OnlineSongMetadata>>()
 
-    suspend fun searchOnlineForSong(song: Song): OnlineSongMetadata? = withContext(Dispatchers.IO) {
-        val cacheKey = "${song.title}|${song.artist}|${song.album}|${song.durationMs}"
-        cache[cacheKey]?.let { return@withContext it }
-
-        val candidates = mutableListOf<OnlineSongMetadata>()
-
-        // Search primary provider (iTunes) and MusicBrainz concurrently
-        coroutineScope {
-            val itunesDeferred = async {
-                try {
-                    itunesProvider.searchMetadata(song.title, song.artist, song.album, song.durationMs)
-                } catch (e: Exception) {
-                    emptyList()
-                }
-            }
-
-            val musicBrainzDeferred = async {
-                try {
-                    musicBrainzProvider.searchMetadata(song.title, song.artist, song.album, song.durationMs)
-                } catch (e: Exception) {
-                    emptyList()
-                }
-            }
-
-            val itunesResults = itunesDeferred.await()
-            val musicBrainzResults = musicBrainzDeferred.await()
-
-            candidates.addAll(itunesResults)
-            candidates.addAll(musicBrainzResults)
+    suspend fun searchCandidates(song: Song): List<OnlineSongMetadata> = mutex.withLock {
+        val key = listOf(song.title, song.artist, song.album, song.durationMs.toString(), song.isrc.orEmpty())
+        cache[key]?.let { return@withLock it }
+        val responses = coroutineScope {
+            providers.map { provider -> async {
+                try { Result.success(provider.searchMetadata(song.title, song.artist, song.album, song.durationMs)) }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) { Result.failure<List<OnlineSongMetadata>>(e) }
+            } }.awaitAll()
         }
-
-        if (candidates.isEmpty()) {
-            return@withContext null
+        val values = responses.flatMap { it.getOrNull().orEmpty() }
+        val failure = responses.firstOrNull { it.isFailure }?.exceptionOrNull()
+        if (values.isEmpty() && failure != null) throw failure
+        var ranked = MetadataMatcher.rank(song, values)
+        if (failure != null) ranked = ranked.map { it.copy(
+            confidence = if (it.confidence == MatchConfidence.HIGH) MatchConfidence.MEDIUM else it.confidence,
+            confidenceReason = it.confidenceReason + " A provider was unavailable; review required.") }
+        if (failure == null) {
+            if (cache.size >= 250) cache.remove(cache.keys.first())
+            cache[key] = ranked
         }
-
-        // Rank candidates: High confidence first, then lowest duration difference
-        val sortedCandidates = candidates.sortedWith(
-            compareBy<OnlineSongMetadata> {
-                when (it.confidence) {
-                    MatchConfidence.HIGH -> 0
-                    MatchConfidence.MEDIUM -> 1
-                    MatchConfidence.LOW -> 2
-                }
-            }.thenBy {
-                if (song.durationMs > 0 && it.durationMs > 0) {
-                    kotlin.math.abs(song.durationMs - it.durationMs)
-                } else {
-                    0L
-                }
-            }
-        )
-
-        var bestMatch = sortedCandidates.first()
-
-        // Fetch lyrics for the top candidate asynchronously
-        try {
-            val (plainLyrics, syncedLyrics) = lyricsProvider.fetchLyrics(
-                title = bestMatch.title,
-                artist = bestMatch.artist,
-                album = bestMatch.album,
-                durationMs = if (bestMatch.durationMs > 0) bestMatch.durationMs else song.durationMs
-            )
-            bestMatch = bestMatch.copy(
-                lyrics = plainLyrics,
-                syncedLyrics = syncedLyrics
-            )
-        } catch (e: Exception) {
-            // Lyrics failure should never block metadata
-        }
-
-        cache[cacheKey] = bestMatch
-        bestMatch
+        ranked
     }
 
-    suspend fun identifyUsingLink(url: String, song: Song? = null): OnlineSongMetadata? = withContext(Dispatchers.IO) {
-        if (!linkProvider.canHandle(url)) return@withContext null
-
-        val resolved = linkProvider.resolveLink(url) ?: return@withContext null
-
-        // Fetch lyrics if available
-        var finalResult = resolved
+    suspend fun enrichLyrics(result: OnlineSongMetadata): OnlineSongMetadata = lyricsMutex.withLock {
+        if (result.confidence != MatchConfidence.HIGH) return@withLock result
+        lyricCache[result]?.let { return@withLock it }
         try {
-            val (plainLyrics, syncedLyrics) = lyricsProvider.fetchLyrics(
-                title = resolved.title,
-                artist = resolved.artist,
-                album = resolved.album,
-                durationMs = if (resolved.durationMs > 0) resolved.durationMs else (song?.durationMs ?: 0L)
-            )
-            finalResult = resolved.copy(
-                lyrics = plainLyrics,
-                syncedLyrics = syncedLyrics
-            )
-        } catch (e: Exception) {
-            // Ignore
-        }
-
-        finalResult
+            val (plain, synced) = lyricsProvider.fetchLyrics(result.title, result.artist, result.album, result.durationMs)
+            result.copy(lyrics = plain, syncedLyrics = synced).also {
+                if (lyricCache.size >= 250) lyricCache.remove(lyricCache.keys.first())
+                lyricCache[result] = it
+            }
+        } catch (e: CancellationException) { throw e } catch (_: Exception) { result }
     }
 
-    /**
-     * Foundation for future Batch Library Search (processes one at a time with rate-limiting).
-     */
-    suspend fun searchBatch(
-        songs: List<Song>,
-        onProgress: (current: Int, total: Int, currentSong: Song, result: OnlineSongMetadata?) -> Boolean
-    ) = withContext(Dispatchers.IO) {
-        val total = songs.size
-        for (i in songs.indices) {
-            val song = songs[i]
-            val result = searchOnlineForSong(song)
-            val shouldContinue = onProgress(i + 1, total, song, result)
-            if (!shouldContinue) break
-            // Respect API rate limits between requests
-            delay(500)
+    suspend fun searchOnlineForSong(song: Song): OnlineSongMetadata? = searchCandidates(song).firstOrNull()?.let { enrichLyrics(it) }
+
+    suspend fun identifyUsingLink(url: String, song: Song? = null): OnlineSongMetadata? {
+        require(linkProvider.canHandle(url)) { "Use a YouTube video or Spotify track HTTPS link." }
+        val resolved = linkProvider.resolveLink(url) ?: return null
+        return if (song == null) resolved else MetadataMatcher.rank(song, listOf(resolved)).firstOrNull()?.let {
+            // oEmbed does not establish a recording's duration or artist identity.
+            it.copy(confidence = MatchConfidence.MEDIUM, confidenceReason = "Provided link: verify the title, artist, version and artwork before applying.")
         }
     }
 }

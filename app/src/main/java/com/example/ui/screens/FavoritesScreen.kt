@@ -33,6 +33,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.model.Song
 import com.example.ui.components.SongListItem
+import com.example.ui.components.AppScreenHeader
+import com.example.ui.components.CollectionPlaybackActions
 import com.example.ui.theme.AccentCyan
 import com.example.ui.theme.AccentPink
 import com.example.ui.theme.AccentPurple
@@ -62,71 +64,10 @@ fun FavoritesScreen(
             .testTag("favorites_screen")
     ) {
         // Header
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Rounded.Favorite,
-                    contentDescription = null,
-                    tint = AccentPink,
-                    modifier = Modifier.size(28.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "Favorites",
-                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                    color = TextPrimary
-                )
-            }
-            Text(
-                text = "${favoriteSongs.size} favorite songs saved offline",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary
-            )
-        }
+        AppScreenHeader("Favorites", "${favoriteSongs.size} saved songs")
 
         if (favoriteSongs.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Button(
-                    onClick = {
-                        if (favoriteSongs.isNotEmpty()) {
-                            onPlaySong(favoriteSongs.first(), favoriteSongs)
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentPurple,
-                        contentColor = TextPrimary
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Play Favorites")
-                }
-
-                Button(
-                    onClick = onShuffleAll,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = DarkElevated,
-                        contentColor = AccentCyan
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Shuffle")
-                }
-            }
+            CollectionPlaybackActions(onPlay = { onPlaySong(favoriteSongs.first(), favoriteSongs) }, onShuffle = onShuffleAll, playLabel = "Play favorites")
         }
 
         if (favoriteSongs.isEmpty()) {
@@ -160,7 +101,7 @@ fun FavoritesScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 100.dp),
+                contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 items(favoriteSongs, key = { it.id }) { song ->

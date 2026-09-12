@@ -1,5 +1,8 @@
 package com.example.data
 
+import androidx.room.withTransaction
+import com.example.metadata.model.OnlineSongMetadata
+import com.example.metadata.service.MetadataUpdatePolicy
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -67,6 +70,7 @@ class MusicRepository(
                     trackNumber = meta.trackNumber ?: song.trackNumber,
                     discNumber = meta.discNumber ?: song.discNumber,
                     albumArtUri = meta.artworkUri ?: song.albumArtUri,
+                    fallbackArtworkUri = song.albumArtUri,
                     lyrics = meta.lyrics ?: song.lyrics,
                     syncedLyrics = meta.syncedLyrics ?: song.syncedLyrics,
                     isrc = meta.isrc ?: song.isrc,
@@ -91,24 +95,23 @@ class MusicRepository(
         songList.filter { it.isFavorite }
     }
 
-    val playlists: Flow<List<Playlist>> = dao.getAllPlaylists().map { entities ->
+    val playlists: Flow<List<Playlist>> = combine(dao.getAllPlaylists(), dao.observePlaylistMembership(), songs) { entities, membership, available ->
         entities.map { entity ->
             Playlist(
                 id = entity.id,
                 name = entity.name,
+                songCount = membership.count { it.playlistId == entity.id && available.any { song -> song.id == it.songId } },
                 createdAt = entity.createdAt
             )
         }
     }
 
     val recentlyPlayed: Flow<List<Song>> = combine(
-        dao.getRecentlyPlayedHistory(20),
+        dao.getRecentPlaybackEvents(20),
         songs
     ) { historyList, allSongs ->
         val map = allSongs.associateBy { it.id }
-        historyList.mapNotNull { history ->
-            map[history.songId]
-        }
+        historyList.mapNotNull { event -> map[event.songId] }.distinctBy { it.id }
     }
 
     val recentlyAdded: Flow<List<Song>> = songs.map { list ->
@@ -151,7 +154,7 @@ class MusicRepository(
                 val (newFound, total) = withContext(Dispatchers.IO) {
                     val previousIds = _rawSongs.value.map { it.id }.toSet()
                     val scanned = AudioScanner.scanDeviceAudio(context)
-                    val samples = SampleAudioProvider.getSampleSongs(context)
+
 
                     // Get excluded songs from Room DB
                     val excludedEntities = try {
@@ -166,13 +169,7 @@ class MusicRepository(
                     }.toSet()
 
                     // Combine scanned with sample songs, avoiding duplicates and excluded items
-                    val combinedAll = if (scanned.isEmpty()) {
-                        samples
-                    } else {
-                        val sampleTitleSet = scanned.map { it.title.lowercase().trim() }.toSet()
-                        val uniqueSamples = samples.filterNot { sampleTitleSet.contains(it.title.lowercase().trim()) }
-                        scanned + uniqueSamples
-                    }
+                    val combinedAll = scanned
 
                     val nonExcluded = combinedAll.filterNot { song ->
                         excludedIds.contains(song.id) ||
@@ -251,6 +248,8 @@ class MusicRepository(
                 }
             }
 
+            if (!fileDeleted) return@withContext false
+
             // Mark as excluded in DB and remove from favorites & active list
             dao.insertExcludedSong(
                 ExcludedSongEntity(
@@ -301,6 +300,12 @@ class MusicRepository(
     suspend fun recordPlayback(songId: Long, positionMs: Long = 0L) = withContext(Dispatchers.IO) {
         val existing = dao.getHistoryForSong(songId)
         val playCount = (existing?.playCount ?: 0) + 1
+        dao.insertPlaybackEvent(
+            PlaybackEventEntity(
+                songId = songId,
+                positionMs = positionMs
+            )
+        )
         dao.recordPlayback(
             PlaybackHistoryEntity(
                 songId = songId,
@@ -328,7 +333,7 @@ class MusicRepository(
             PlaylistSongCrossRef(
                 playlistId = playlistId,
                 songId = songId,
-                orderIndex = System.currentTimeMillis().toInt()
+                orderIndex = dao.nextPlaylistOrder(playlistId)
             )
         )
     }
@@ -369,6 +374,19 @@ class MusicRepository(
     }
 
     // Metadata Management
+    suspend fun applyOnlineMetadata(song: Song, result: OnlineSongMetadata, fields: Set<String>, automatic: Boolean = false): Boolean = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val latest = dao.getSongMetadata(song.id)
+            if (automatic && latest != null) {
+                // Existing overrides need explicit review, including edits saved during a batch request.
+                return@withTransaction false
+            }
+            if (fields.isEmpty()) return@withTransaction false
+            dao.insertSongMetadata(MetadataUpdatePolicy.merge(song.id, latest, result, fields))
+            true
+        }
+    }
+
     suspend fun saveSongMetadata(metadata: SongMetadataEntity) = withContext(Dispatchers.IO) {
         dao.insertSongMetadata(metadata)
     }

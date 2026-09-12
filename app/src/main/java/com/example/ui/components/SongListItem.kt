@@ -43,6 +43,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -87,7 +89,7 @@ fun SongListItem(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(MaterialTheme.shapes.small)
             .background(backgroundColor)
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -125,7 +127,7 @@ fun SongListItem(
                     } else {
                         Icon(
                             imageVector = Icons.Rounded.PlayArrow,
-                            contentDescription = "Playing",
+                            contentDescription = if (isPlaying) "Playing" else "Paused",
                             tint = AccentCyan,
                             modifier = Modifier.size(24.dp)
                         )
@@ -143,7 +145,7 @@ fun SongListItem(
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = if (isCurrentSong) FontWeight.Bold else FontWeight.Medium
                 ),
-                color = if (isCurrentSong) AccentCyan else TextPrimary,
+                color = if (isCurrentSong) com.example.ui.theme.AccentPurple else TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -160,31 +162,12 @@ fun SongListItem(
         if (trailingContent != null) {
             trailingContent()
         } else {
-            // Subtle Play Count Display
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .padding(end = 4.dp)
-                    .testTag("play_count_${song.id}")
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.PlayArrow,
-                    contentDescription = null,
-                    tint = TextTertiary.copy(alpha = 0.7f),
-                    modifier = Modifier.size(13.dp)
-                )
-                Spacer(modifier = Modifier.width(2.dp))
-                Text(
-                    text = "${song.playCount}",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                    color = TextTertiary
-                )
-            }
-
             // Favorite Button
             IconButton(
                 onClick = onToggleFavorite,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(48.dp).semantics {
+                    stateDescription = if (song.isFavorite) "Favorited" else "Not favorited"
+                }
             ) {
                 Icon(
                     imageVector = if (song.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
@@ -198,7 +181,7 @@ fun SongListItem(
             Box {
                 IconButton(
                     onClick = { showMenu = true },
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.MoreVert,

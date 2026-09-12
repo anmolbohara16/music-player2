@@ -36,9 +36,9 @@ fun AlbumGridItem(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(MaterialTheme.shapes.medium)
             .background(GlassCardBackground)
-            .border(1.dp, GlassCardBorder, RoundedCornerShape(20.dp))
+            .border(1.dp, GlassCardBorder, MaterialTheme.shapes.medium)
             .clickable { onClick() }
             .testTag("album_item_${album.name.replace(" ", "_")}")
     ) {
@@ -47,7 +47,7 @@ fun AlbumGridItem(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
-                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                    .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
             ) {
                 AlbumArtFromData(
                     artRes = album.albumArtRes,

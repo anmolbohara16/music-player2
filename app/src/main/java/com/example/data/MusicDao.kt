@@ -29,6 +29,12 @@ interface MusicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun recordPlayback(history: PlaybackHistoryEntity)
 
+    @Insert
+    suspend fun insertPlaybackEvent(event: PlaybackEventEntity)
+
+    @Query("SELECT * FROM playback_events ORDER BY playedAt DESC LIMIT :limit")
+    fun getRecentPlaybackEvents(limit: Int = 30): Flow<List<PlaybackEventEntity>>
+
     @Query("SELECT * FROM playback_history WHERE songId = :songId LIMIT 1")
     suspend fun getHistoryForSong(songId: Long): PlaybackHistoryEntity?
 
@@ -52,11 +58,17 @@ interface MusicDao {
     @Query("SELECT songId FROM playlist_songs WHERE playlistId = :playlistId ORDER BY orderIndex ASC")
     fun getSongIdsForPlaylist(playlistId: Long): Flow<List<Long>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun addSongToPlaylist(crossRef: PlaylistSongCrossRef)
 
     @Query("DELETE FROM playlist_songs WHERE playlistId = :playlistId AND songId = :songId")
     suspend fun removeSongFromPlaylist(playlistId: Long, songId: Long)
+
+    @Query("SELECT * FROM playlist_songs")
+    fun observePlaylistMembership(): Flow<List<PlaylistSongCrossRef>>
+
+    @Query("SELECT COALESCE(MAX(orderIndex), -1) + 1 FROM playlist_songs WHERE playlistId = :playlistId")
+    suspend fun nextPlaylistOrder(playlistId: Long): Int
 
     @Query("SELECT COUNT(*) FROM playlist_songs WHERE playlistId = :playlistId")
     fun getPlaylistSongCount(playlistId: Long): Flow<Int>
@@ -74,6 +86,9 @@ interface MusicDao {
 
     @Query("SELECT songId FROM excluded_songs")
     suspend fun getExcludedSongIdsSync(): List<Long>
+
+    @Query("SELECT * FROM excluded_songs")
+    fun observeExcludedSongs(): Flow<List<ExcludedSongEntity>>
 
     @Query("SELECT * FROM excluded_songs")
     suspend fun getExcludedSongEntitiesSync(): List<ExcludedSongEntity>
